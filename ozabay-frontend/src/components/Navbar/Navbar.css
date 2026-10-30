@@ -1,0 +1,340 @@
+.ozb-nav {
+  --ozb-navy: #071a36;
+  --ozb-navy-deep: #051228;
+  --ozb-gold: #c9a45c;
+  --ozb-gold-soft: #dcc08a;
+  --ozb-white: #ffffff;
+  --ozb-text: rgba(255, 255, 255, 0.86);
+  --ozb-line: rgba(255, 255, 255, 0.1);
+  --ozb-height: 84px;
+  --ozb-serif: "Playfair Display", "Cormorant Garamond", Georgia, serif;
+  --ozb-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--ozb-navy);
+  border-bottom: 1px solid transparent;
+  transition: box-shadow 0.35s ease, border-color 0.35s ease;
+}
+
+.ozb-nav.is-scrolled {
+  border-bottom-color: var(--ozb-line);
+  box-shadow: 0 10px 30px rgba(3, 10, 24, 0.35);
+}
+
+/* Vendor mode — red accent theme (vendor panel, no storefront shopping) */
+.ozb-nav.is-vendor {
+  --ozb-navy: #3a0a0a;
+  --ozb-navy-deep: #220505;
+  --ozb-gold: #d8342f;
+  --ozb-gold-soft: #f07a72;
+  background: linear-gradient(180deg, #2e0808 0%, #3a0a0a 100%);
+}
+
+.ozb-nav.is-vendor.is-scrolled {
+  border-bottom-color: rgba(216, 52, 47, 0.35);
+  box-shadow: 0 10px 30px rgba(24, 2, 2, 0.5);
+}
+
+.ozb-nav.is-vendor .ozb-nav__vendor-tag {
+  font-family: var(--ozb-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--ozb-gold);
+  border-radius: 999px;
+  padding: 3px 8px;
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.ozb-nav.is-vendor .ozb-nav__icon-btn:hover {
+  background: rgba(216, 52, 47, 0.14);
+}
+
+.ozb-nav *,
+.ozb-nav *::before,
+.ozb-nav *::after {
+  box-sizing: border-box;
+}
+
+.ozb-nav__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(12px, 2vw, 56px);
+  height: var(--ozb-height);
+  max-width: 1720px;
+  margin: 0 auto;
+  padding: 0 clamp(20px, 4.5vw, 72px);
+}
+
+/* Logo */
+.ozb-nav__logo {
+  flex-shrink: 0;
+  font-family: var(--ozb-serif);
+  font-size: clamp(30px, 2.6vw, 38px);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--ozb-white);
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.ozb-nav__logo:hover {
+  color: var(--ozb-gold-soft);
+}
+
+/* Links (desktop) */
+.ozb-nav__menu {
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.ozb-nav__links {
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.4vw, 36px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ozb-nav__link {
+  position: relative;
+  display: inline-block;
+  padding: 30px 0;
+  font-family: var(--ozb-sans);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--ozb-text);
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.ozb-nav__link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 22px;
+  width: 100%;
+  height: 1px;
+  background: var(--ozb-gold);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ozb-nav__link:hover,
+.ozb-nav__link.is-active {
+  color: var(--ozb-white);
+}
+
+.ozb-nav__link:hover::after,
+.ozb-nav__link.is-active::after {
+  transform: scaleX(1);
+}
+
+/* Right-side actions */
+.ozb-nav__actions {
+  display: flex;
+  align-items: center;
+  gap: clamp(6px, 1vw, 14px);
+  flex-shrink: 0;
+}
+
+.ozb-nav__icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  color: var(--ozb-white);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.3s ease, background-color 0.3s ease;
+}
+
+.ozb-nav__icon-btn:hover {
+  color: var(--ozb-gold-soft);
+  background: rgba(201, 164, 92, 0.1);
+}
+
+.ozb-nav__badge {
+  position: absolute;
+  top: 3px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-family: var(--ozb-sans);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+  color: var(--ozb-navy-deep);
+  background: var(--ozb-gold);
+  border-radius: 999px;
+}
+
+.ozb-nav a:focus-visible,
+.ozb-nav button:focus-visible {
+  outline: 1px solid var(--ozb-gold);
+  outline-offset: 3px;
+}
+
+/* Hamburger (hidden on desktop) */
+.ozb-nav__toggle {
+  display: none;
+  position: relative;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.ozb-nav__toggle span {
+  position: absolute;
+  left: 10px;
+  width: 22px;
+  height: 1.5px;
+  background: var(--ozb-white);
+  transition: transform 0.35s ease, top 0.35s ease, background-color 0.3s ease;
+}
+
+.ozb-nav__toggle span:nth-child(1) {
+  top: 16px;
+}
+.ozb-nav__toggle span:nth-child(2) {
+  top: 25px;
+}
+
+.ozb-nav__toggle:hover span {
+  background: var(--ozb-gold-soft);
+}
+
+.ozb-nav__toggle.is-open span:nth-child(1) {
+  top: 21px;
+  transform: rotate(45deg);
+}
+.ozb-nav__toggle.is-open span:nth-child(2) {
+  top: 21px;
+  transform: rotate(-45deg);
+}
+
+/* Tablet + mobile: collapse to drawer */
+@media (max-width: 1024px) {
+  .ozb-nav {
+    --ozb-height: 72px;
+  }
+
+  .ozb-nav__toggle {
+    display: inline-block;
+  }
+
+  .ozb-nav__menu {
+    position: fixed;
+    top: var(--ozb-height);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: 24px clamp(20px, 6vw, 56px) 48px;
+    overflow-y: auto;
+    background: var(--ozb-navy-deep);
+    border-top: 1px solid var(--ozb-line);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition: opacity 0.35s ease, transform 0.35s ease,
+      visibility 0s linear 0.35s;
+  }
+
+  .ozb-nav__menu.is-open {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+
+  .ozb-nav__links {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    max-width: 640px;
+  }
+
+  .ozb-nav__links li {
+    border-bottom: 1px solid var(--ozb-line);
+  }
+
+  .ozb-nav__link {
+    display: block;
+    padding: 20px 0;
+    font-family: var(--ozb-serif);
+    font-size: clamp(22px, 4vw, 28px);
+    letter-spacing: 0;
+  }
+
+  .ozb-nav__link::after {
+    display: none;
+  }
+
+  .ozb-nav__link:hover,
+  .ozb-nav__link.is-active {
+    color: var(--ozb-gold-soft);
+  }
+}
+
+@media (max-width: 480px) {
+  .ozb-nav__actions {
+    gap: 0;
+  }
+
+  .ozb-nav__icon-btn,
+  .ozb-nav__toggle {
+    width: 38px;
+    height: 38px;
+  }
+
+  .ozb-nav__toggle span {
+    left: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ozb-nav *,
+  .ozb-nav *::before,
+  .ozb-nav *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+/* Collections mega menu — functional discovery layer, same brand styling */
+.ozb-nav__has-mega{position:relative}
+.ozb-mega{position:absolute;left:50%;top:100%;width:min(760px,72vw);padding:24px;background:var(--ozb-navy-deep);border:1px solid rgba(255,255,255,.1);box-shadow:0 28px 70px rgba(2,10,24,.38);display:grid;grid-template-columns:.72fr 1.28fr;gap:24px;opacity:0;visibility:hidden;transform:translate(-50%,8px);transition:opacity .28s ease,transform .28s ease,visibility .28s ease;pointer-events:none}
+.ozb-nav__has-mega:hover .ozb-mega,.ozb-nav__has-mega:focus-within .ozb-mega{opacity:1;visibility:visible;transform:translate(-50%,0);pointer-events:auto}
+.ozb-mega__intro{display:grid;align-content:center;gap:9px;padding:10px 12px;border-right:1px solid rgba(255,255,255,.1)}
+.ozb-mega__intro span{font-size:7px;letter-spacing:.16em;color:var(--ozb-gold)}
+.ozb-mega__intro strong{font:400 32px/1 var(--ozb-serif);color:#fff}
+.ozb-mega__intro small{max-width:210px;color:rgba(255,255,255,.55);font:10px/1.6 var(--ozb-sans)}
+.ozb-mega__grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ozb-mega__grid button{position:relative;display:grid;gap:5px;padding:13px 34px 13px 12px;text-align:left;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025);color:#fff;cursor:pointer;transition:border-color .25s,background .25s,transform .25s}
+.ozb-mega__grid button:hover{border-color:rgba(201,164,92,.55);background:rgba(201,164,92,.07);transform:translateY(-2px)}
+.ozb-mega__grid b{font:400 17px var(--ozb-serif)}
+.ozb-mega__grid small{font:8px var(--ozb-sans);color:rgba(255,255,255,.48)}
+.ozb-mega__grid i{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-style:normal;color:var(--ozb-gold)}
+@media(max-width:1024px){
+ .ozb-mega{display:none}
+}

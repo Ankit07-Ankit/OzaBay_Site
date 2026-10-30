@@ -1,0 +1,20 @@
+.signin-password-help {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+
+.signin-password-help .text-link {
+  padding: 0;
+}
+
+.signin-resend-code {
+  justify-self: start;
+  padding: 4px 0;
+  text-align: left;
+}
+
+.signin-resend-code:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}

@@ -1,0 +1,16 @@
+import { useState } from "react";
+
+export default function StateCraftMarketplace({state, products, onBack, onProduct, onAdd, onToggleWish, wish}){
+  const [craftFilter,setCraftFilter]=useState(new URLSearchParams(window.location.search).get("craft")||"All");
+  const [sort,setSort]=useState("featured");
+  const available=products.filter(p=>craftFilter==="All"||p.craft===craftFilter);
+  const shown=[...available].sort((a,b)=>sort==="low"?a.priceValue-b.priceValue:sort==="high"?b.priceValue-a.priceValue:0);
+  return <section className="state-market-page"><div className="state-market-orbit" aria-hidden="true"/><div className="oz-container">
+    <button className="state-market-back" onClick={onBack}>← Back to India Craft Atlas</button>
+    <div className="state-market-hero"><div><p className="eyebrow">OZABAY · REGIONAL CRAFT EDIT</p><span className="state-market-kicker">CRAFTED IN INDIA · {state.code}</span><h1>{state.name}<em> craft.</em></h1><p>Explore handmade traditions from {state.name}, brought together in one dedicated edit.</p><div className="state-market-meta"><span>CRAFT CENTRES</span><strong>{state.cities}</strong></div></div><div className="state-market-hero-art"><img src={state.image} alt={`${state.name} craft inspiration`}/><span>THE REGIONAL EDIT · 01</span></div></div>
+    <div className="state-market-toolbar"><div><p className="eyebrow">SHOP BY TRADITION</p><div className="state-market-filters"><button className={craftFilter==="All"?"active":""} onClick={()=>setCraftFilter("All")}>All crafts</button>{state.crafts.map(c=><button key={c} className={craftFilter===c?"active":""} onClick={()=>setCraftFilter(c)}>{c}</button>)}</div></div><label>Sort by <select value={sort} onChange={e=>setSort(e.target.value)}><option value="featured">Featured</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option></select></label></div>
+    <div className="state-market-count"><span>{state.name.toUpperCase()} · {shown.length} PIECES</span><span>HANDMADE · SMALL BATCH · MAKER FIRST</span></div>
+    {shown.length?<div className="state-market-grid">{shown.map((p,i)=>{const isLiked=wish.some((id)=>String(id)===String(p.id));return <article className="state-market-card" key={p.id} style={{"--card-index":i}}><button className="state-market-image" onClick={()=>onProduct(p)}><img src={p.image} alt={p.name}/><span>VIEW PIECE ↗</span></button><div className="state-market-card-copy"><small>{p.craft} · {p.city}</small><button className="state-market-name" onClick={()=>onProduct(p)}>{p.name}</button><div><strong>{p.price}</strong><button type="button" className={`state-market-wish ${isLiked?"liked":""}`} onClick={()=>onToggleWish(p)} aria-label={isLiked?`Remove ${p.name} from favorites`:`Add ${p.name} to favorites`} aria-pressed={isLiked}>{isLiked?"♥":"♡"}</button></div><button className="state-market-add" onClick={()=>onAdd(p)}>Add to bag <span>↗</span></button></div></article>})}</div>:<div className="state-market-empty">No products in this craft edit yet. Choose another tradition.</div>}
+    <div className="state-market-footnote">A considered collection inspired by {state.name}. Dedicated regional pieces can be expanded as authentic products and photography are added.</div>
+  </div></section>
+}
