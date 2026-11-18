@@ -15,6 +15,9 @@ function passwordScore(value) {
 const strengthLabels = ["", "Fragile", "Fair", "Strong", "Masterpiece-grade"];
 const customerTabs = ["Profile", "Favorites", "Bag", "Delivery Location", "Orders"];
 const vendorTabs = ["Profile", "My Products"];
+const orderTrackingStages = ["In progress", "Crafting", "Shipped", "Delivered"];
+const customerOrderStatus = (status) =>
+  status === "Received" ? "In progress" : status;
 
 const emptyLocation = (name = "") => ({
   building: "",
@@ -47,6 +50,8 @@ export default function AccountSection({
   vendorProducts = [],
   vendorProductsLoaded = false,
   onSaveProfile,
+  onRequestPasswordChange,
+  onConfirmPasswordChange,
   onSaveLocation,
   onRemoveFavorite,
   onRemoveBag,
@@ -56,6 +61,8 @@ export default function AccountSection({
   onOpenVendorPanel,
   onLogout,
   orders = [],
+  onCancelOrder,
+  onRequestOrderItemReturn,
 }) {
   // Vendors do not shop — favorites, bag and delivery are hidden from their panel.
   const tabs = isVendor ? vendorTabs : customerTabs;
@@ -64,22 +71,78 @@ export default function AccountSection({
     name: account.name || "",
     email: account.email || "",
     currentPassword: "",
-    password: "",
   });
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    otp: "",
+  });
+  const [passwordStep, setPasswordStep] = useState("idle"); // idle | code
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [cancelOrderError, setCancelOrderError] = useState("");
+  const [cancelOrderNotice, setCancelOrderNotice] = useState("");
+  const [cancellingOrderId, setCancellingOrderId] = useState("");
+  const [returningItemId, setReturningItemId] = useState("");
+  const [trackingOrderId, setTrackingOrderId] = useState("");
   const [showPasswords, setShowPasswords] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const tabsRef = useRef(null);
   const tabRefs = useRef([]);
   const [indicator, setIndicator] = useState({ translateX: 0, width: 0 });
-  const passwordScoreValue = passwordScore(profile.password);
+  const passwordScoreValue = passwordScore(passwordForm.newPassword);
   const dirty =
     profile.name !== (account.name || "") ||
     profile.email.trim().toLowerCase() !== (account.email || "").toLowerCase() ||
-    Boolean(profile.currentPassword || profile.password);
+    Boolean(profile.currentPassword);
+
+  const cancelOrder = async (order) => {
+    const isPaid = order.paymentStatus === "paid";
+    const confirmation = window.confirm(
+      isPaid
+        ? "Cancel this order? Its Razorpay payment will remain paid until an administrator processes the refund."
+        : "Cancel this order? This cannot be undone.",
+    );
+    if (!confirmation) return;
+
+    setCancelOrderError("");
+    setCancelOrderNotice("");
+    setCancellingOrderId(order.id);
+    try {
+      const result = await onCancelOrder(order.id);
+      setCancelOrderNotice(result.message || "Order cancelled successfully.");
+    } catch (requestError) {
+      setCancelOrderError(requestError.message || "Unable to cancel this order.");
+    } finally {
+      setCancellingOrderId("");
+    }
+  };
+
+  const requestReturn = async (order, item) => {
+    const reason = window.prompt(`Optional: why are you returning ${item.name}?`);
+    if (reason === null) return;
+    setCancelOrderError("");
+    setCancelOrderNotice("");
+    const itemKey = `${order.id}:${item.productId}`;
+    setReturningItemId(itemKey);
+    try {
+      const result = await onRequestOrderItemReturn(
+        order.id,
+        item.productId,
+        reason.trim(),
+      );
+      setCancelOrderNotice(result.message || "Return request sent to the vendor.");
+    } catch (requestError) {
+      setCancelOrderError(requestError.message || "Unable to request this return.");
+    } finally {
+      setReturningItemId("");
+    }
+  };
 
   useEffect(() => {
     if (!confirmLogout) return undefined;
@@ -148,8 +211,8 @@ export default function AccountSection({
     setMessage("");
     setError("");
     if (
-      profile.email.trim().toLowerCase() !== (account.email || "").toLowerCase()
-      && !profile.currentPassword
+      profile.email.trim().toLowerCase() !== (account.email || "").toLowerCase() &&
+      !profile.currentPassword
     ) {
       setError("Enter your current password to change your email address.");
       return;
@@ -158,16 +221,77 @@ export default function AccountSection({
     try {
       const payload = { name: profile.name.trim(), email: profile.email.trim() };
       if (profile.currentPassword) payload.currentPassword = profile.currentPassword;
-      if (profile.password) {
-        payload.password = profile.password;
-      }
       await onSaveProfile(payload);
-      setProfile((current) => ({ ...current, currentPassword: "", password: "" }));
+      setProfile((current) => ({ ...current, currentPassword: "" }));
       setMessage("Your account details have been updated.");
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const requestPasswordChangeCode = async (event) => {
+    event.preventDefault();
+    setPasswordMessage("");
+    setPasswordError("");
+    if (!passwordForm.currentPassword) {
+      setPasswordError("Enter your current password to continue.");
+      return;
+    }
+    if (!passwordForm.newPassword || passwordForm.newPassword.length < 6) {
+      setPasswordError("Enter a new password with at least 6 characters.");
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      const result = await onRequestPasswordChange(passwordForm.currentPassword);
+      setPasswordStep("code");
+      setPasswordMessage(
+        result?.message || `We sent a verification code to ${result?.email || "your registered email"}.`,
+      );
+    } catch (requestError) {
+      setPasswordError(requestError.message);
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
+
+  const confirmPasswordChangeCode = async (event) => {
+    event.preventDefault();
+    setPasswordMessage("");
+    setPasswordError("");
+    if (!/^\d{6}$/.test(passwordForm.otp.trim())) {
+      setPasswordError("Enter the 6-digit verification code sent to your email.");
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      const result = await onConfirmPasswordChange({
+        otp: passwordForm.otp.trim(),
+        password: passwordForm.newPassword,
+      });
+      setPasswordForm({ currentPassword: "", newPassword: "", otp: "" });
+      setPasswordStep("idle");
+      setPasswordMessage(result?.message || "Password changed successfully.");
+    } catch (requestError) {
+      setPasswordError(requestError.message);
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
+
+  const resendPasswordChangeCode = async () => {
+    setPasswordMessage("");
+    setPasswordError("");
+    setPasswordBusy(true);
+    try {
+      const result = await onRequestPasswordChange(passwordForm.currentPassword);
+      setPasswordMessage(result?.message || "A new verification code was sent to your email.");
+    } catch (requestError) {
+      setPasswordError(requestError.message);
+    } finally {
+      setPasswordBusy(false);
     }
   };
 
@@ -533,6 +657,7 @@ export default function AccountSection({
       )}
 
       {activeTab === "Profile" && (
+        <>
         <form className="account-section__form" onSubmit={saveProfile}>
           <div>
             <p className="eyebrow">Personal details</p>
@@ -559,49 +684,13 @@ export default function AccountSection({
               required
             />
           </label>
-          <div className="account-section__password-heading">
-            <div>
-              <p className="eyebrow">Change password</p>
-              <small>Leave these fields blank to keep your current password.</small>
-            </div>
-            <button
-              type="button"
-              className="account-section__peek"
-              aria-pressed={showPasswords}
-              onClick={() => setShowPasswords((current) => !current)}
-            >
-              {showPasswords ? "Hide passwords" : "Show passwords"}
-            </button>
-          </div>
           <label>
-            Current password
+            Current password (required to change email)
             <input
               type={showPasswords ? "text" : "password"}
               value={profile.currentPassword}
               onChange={(event) => setProfile({ ...profile, currentPassword: event.target.value })}
               autoComplete="current-password"
-              minLength={6}
-            />
-          </label>
-          <label className="account-section__password-field">
-            <div className="account-section__password-field-head">
-              <span>New password</span>
-              {profile.password && (
-                <span className={`account-section__strength is-${passwordScoreValue}`}>
-                  <span aria-hidden="true">
-                    {[1, 2, 3, 4].map((segment) => (
-                      <i key={segment} className={segment <= passwordScoreValue ? "is-on" : ""} />
-                    ))}
-                  </span>
-                  {strengthLabels[passwordScoreValue]}
-                </span>
-              )}
-            </div>
-            <input
-              type={showPasswords ? "text" : "password"}
-              value={profile.password}
-              onChange={(event) => setProfile({ ...profile, password: event.target.value })}
-              autoComplete="new-password"
               minLength={6}
             />
           </label>
@@ -615,6 +704,136 @@ export default function AccountSection({
             {dirty && !busy && <span className="account-section__dirty-flag">unsaved changes</span>}
           </button>
         </form>
+
+        <form
+          className="account-section__form"
+          onSubmit={passwordStep === "code" ? confirmPasswordChangeCode : requestPasswordChangeCode}
+        >
+          <div className="account-section__password-heading">
+            <div>
+              <p className="eyebrow">Change password</p>
+              <small>
+                For security, verify your registered email ({account.email}) before changing your password.
+              </small>
+            </div>
+            <button
+              type="button"
+              className="account-section__peek"
+              aria-pressed={showPasswords}
+              onClick={() => setShowPasswords((current) => !current)}
+            >
+              {showPasswords ? "Hide passwords" : "Show passwords"}
+            </button>
+          </div>
+
+          {(passwordMessage || passwordError) && (
+            <p
+              className={`account-section__notice ${passwordError ? "is-error" : ""}`}
+              role={passwordError ? "alert" : "status"}
+            >
+              {passwordError || passwordMessage}
+            </p>
+          )}
+
+          <label>
+            Current password
+            <input
+              type={showPasswords ? "text" : "password"}
+              value={passwordForm.currentPassword}
+              onChange={(event) =>
+                setPasswordForm({ ...passwordForm, currentPassword: event.target.value })
+              }
+              autoComplete="current-password"
+              minLength={6}
+              required
+              disabled={passwordBusy || passwordStep === "code"}
+            />
+          </label>
+          <label className="account-section__password-field">
+            <div className="account-section__password-field-head">
+              <span>New password</span>
+              {passwordForm.newPassword && (
+                <span className={`account-section__strength is-${passwordScoreValue}`}>
+                  <span aria-hidden="true">
+                    {[1, 2, 3, 4].map((segment) => (
+                      <i key={segment} className={segment <= passwordScoreValue ? "is-on" : ""} />
+                    ))}
+                  </span>
+                  {strengthLabels[passwordScoreValue]}
+                </span>
+              )}
+            </div>
+            <input
+              type={showPasswords ? "text" : "password"}
+              value={passwordForm.newPassword}
+              onChange={(event) =>
+                setPasswordForm({ ...passwordForm, newPassword: event.target.value })
+              }
+              autoComplete="new-password"
+              minLength={6}
+              required
+              disabled={passwordBusy || passwordStep === "code"}
+            />
+          </label>
+
+          {passwordStep === "code" && (
+            <label>
+              Email verification code
+              <input
+                value={passwordForm.otp}
+                onChange={(event) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    otp: event.target.value.replace(/\D/g, "").slice(0, 6),
+                  })
+                }
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                placeholder="6-digit code"
+                required
+                disabled={passwordBusy}
+              />
+            </label>
+          )}
+
+          <div className="account-section__item-actions">
+            <button className="hero-action account-section__submit" type="submit" disabled={passwordBusy}>
+              {passwordBusy
+                ? "Please wait…"
+                : passwordStep === "code"
+                  ? "Verify email & change password ↗"
+                  : "Send verification code ↗"}
+            </button>
+            {passwordStep === "code" && (
+              <>
+                <button
+                  type="button"
+                  className="account-section__saved-card-button"
+                  onClick={resendPasswordChangeCode}
+                  disabled={passwordBusy}
+                >
+                  Resend code
+                </button>
+                <button
+                  type="button"
+                  className="account-section__cancel-location"
+                  onClick={() => {
+                    setPasswordStep("idle");
+                    setPasswordForm((current) => ({ ...current, otp: "" }));
+                    setPasswordMessage("");
+                    setPasswordError("");
+                  }}
+                  disabled={passwordBusy}
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+        </form>
+        </>
       )}
 
       {!isVendor && activeTab === "Favorites" && (
@@ -1073,21 +1292,90 @@ export default function AccountSection({
             </div>
           ) : (
             <div className="account-section__order-list">
-              {orders.map((order) => (
+              {cancelOrderError && (
+                <p className="account-section__order-message account-section__order-message--error" role="alert">
+                  {cancelOrderError}
+                </p>
+              )}
+              {cancelOrderNotice && (
+                <p className="account-section__order-message" role="status">
+                  {cancelOrderNotice}
+                </p>
+              )}
+              {orders.map((order) => {
+                const displayStatus = customerOrderStatus(order.status);
+                return (
                 <article key={order.id} className="account-section__order-card">
                   <div className="account-section__order-head">
                     <div>
                       <strong>Order #{order.id}</strong>
                       <p>{new Date(order.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}</p>
                     </div>
-                    <span className={`account-section__order-status account-section__order-status--${order.status.toLowerCase()}`}>{order.status}</span>
+                    <span className={`account-section__order-status account-section__order-status--${displayStatus.toLowerCase().replace(/\s+/g, "-")}`}>{displayStatus}</span>
                   </div>
                   <div className="account-section__order-items">
                     {order.items.map((item, index) => (
                       <div key={index} className="account-section__order-item">
-                        <span>{item.name}</span>
+                        <span>
+                          {item.name}
+                          {item.fulfillmentStatus && (
+                            <small className="account-section__order-item-status">
+                              {customerOrderStatus(item.fulfillmentStatus)}
+                            </small>
+                          )}
+                          {order.paymentMethod === "Cash on delivery" && (
+                            <small className={`account-section__order-item-status account-section__cod-status${item.cashOnDelivery?.status === "paid" ? " is-paid" : ""}`}>
+                              COD {item.cashOnDelivery?.status === "paid" ? "paid" : "payment due"}
+                              {item.cashOnDelivery?.collectedAt
+                                && ` · ${new Date(item.cashOnDelivery.collectedAt).toLocaleDateString("en-IN")}`}
+                            </small>
+                          )}
+                          {item.fulfillmentStatus === "Delivered"
+                            && ["requested", "approved"].includes(item.returnRequest?.status) && (
+                              <small className={`account-section__return-status account-section__return-status--${item.returnRequest.status}`}>
+                                Return {item.returnRequest.status}
+                              </small>
+                            )}
+                        </span>
                         <span>×{item.qty}</span>
                         <span>{money(item.priceValue * item.qty)}</span>
+                        {item.fulfillmentStatus === "Delivered"
+                          && item.returnRequest?.status !== "requested"
+                          && item.returnRequest?.status !== "approved"
+                          && onRequestOrderItemReturn && (() => {
+                            const deliveredAt = item.deliveredAt
+                              ? new Date(item.deliveredAt).getTime()
+                              : 0;
+                            const returnDeadline = deliveredAt + 7 * 24 * 60 * 60 * 1000;
+                            const isReturnEligible =
+                              deliveredAt > 0
+                              && deliveredAt <= Date.now()
+                              && Date.now() < returnDeadline;
+                            if (!isReturnEligible) return null;
+                            const itemKey = `${order.id}:${item.productId}`;
+                            return (
+                              <button
+                                type="button"
+                                className="account-section__return-button"
+                                onClick={() => requestReturn(order, item)}
+                                disabled={returningItemId === itemKey}
+                              >
+                                {returningItemId === itemKey
+                                  ? "Requesting…"
+                                  : item.returnRequest?.status === "rejected"
+                                    ? "Request return again"
+                                    : "Request return"}
+                              </button>
+                            );
+                          })()}
+                        {item.fulfillmentStatus === "Delivered"
+                          && item.returnRequest?.status === "rejected"
+                          && <small className="account-section__return-status account-section__return-status--rejected">Previous return request declined</small>}
+                        {item.fulfillmentStatus === "Delivered"
+                          && item.returnRequest?.status === "none"
+                          && item.deliveredAt
+                          && Date.now() >= new Date(item.deliveredAt).getTime() + 7 * 24 * 60 * 60 * 1000
+                          && <small className="account-section__return-expired">7-day return window ended</small>}
                       </div>
                     ))}
                   </div>
@@ -1099,9 +1387,97 @@ export default function AccountSection({
                     <span>{order.customer.name}</span>
                     <span>{order.customer.address}</span>
                     <span>{order.customer.city}</span>
+                    <span>{order.customer.phone} · {order.customer.email}</span>
+                    <span>{order.paymentMethod} · {order.paymentStatus}</span>
+                    {order.paymentDetails?.refundStatus === "pending" && (
+                      <span className="account-section__refund-note">
+                        Refund pending admin follow-up. Your payment remains recorded as paid until refunded.
+                      </span>
+                    )}
                   </div>
+                  <div className="account-section__order-actions">
+                    <button
+                      type="button"
+                      className="account-section__track-order"
+                      aria-expanded={trackingOrderId === order.id}
+                      onClick={() =>
+                        setTrackingOrderId((current) =>
+                          current === order.id ? "" : order.id,
+                        )
+                      }
+                    >
+                      {trackingOrderId === order.id ? "Hide tracking" : "Track order"}
+                    </button>
+                    {order.status !== "Delivered"
+                      && order.status !== "Cancelled"
+                      && !(order.items || []).some(
+                        (item) => item.fulfillmentStatus === "Delivered",
+                      )
+                      && onCancelOrder && (
+                        <button
+                          type="button"
+                          className="account-section__cancel-order"
+                          onClick={() => cancelOrder(order)}
+                          disabled={cancellingOrderId === order.id}
+                        >
+                          {cancellingOrderId === order.id ? "Cancelling…" : "Cancel order"}
+                        </button>
+                      )}
+                  </div>
+                  {trackingOrderId === order.id && (
+                    <div className="account-section__order-tracking">
+                      <p>
+                        {order.status === "Awaiting payment"
+                          ? "Your order is waiting for payment confirmation."
+                          : order.status === "Payment failed"
+                            ? "Payment was not completed. Contact support if you were charged."
+                            : order.status === "Cancelled"
+                              ? `This order was cancelled${order.cancelledAt ? ` on ${new Date(order.cancelledAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}` : ""}.`
+                              : "Live fulfillment progress from your maker."}
+                      </p>
+                      {(order.items || []).map((item, index) => {
+                        const status =
+                          customerOrderStatus(
+                            item.fulfillmentStatus
+                            || (order.status === "Delivered" ? "Delivered" : order.status),
+                          );
+                        const currentStage = orderTrackingStages.indexOf(status);
+                        return (
+                          <div
+                            className="account-section__tracking-item"
+                            key={`${item.name}-${index}`}
+                          >
+                            <strong>{item.name}</strong>
+                            {orderTrackingStages.includes(status) ? (
+                              <ol className="account-section__tracking-steps">
+                                {orderTrackingStages.map((stage, stageIndex) => (
+                                  <li
+                                    className={stageIndex <= currentStage ? "is-complete" : ""}
+                                    key={stage}
+                                  >
+                                    <span aria-hidden="true" />
+                                    {stage}
+                                  </li>
+                                ))}
+                              </ol>
+                            ) : (
+                              <span className="account-section__tracking-special">
+                                {status}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {order.updatedAt && order.status !== "Cancelled" && (
+                        <small className="account-section__tracking-updated">
+                          Last updated {new Date(order.updatedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                        </small>
+                      )}
+                    </div>
+                  )}
                 </article>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -141,6 +141,24 @@
   margin-top: 4px;
 }
 
+.signup__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 14px;
+  color: #8a929e;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.signup__divider::before,
+.signup__divider::after {
+  height: 1px;
+  flex: 1;
+  background: rgba(7, 26, 54, 0.12);
+  content: "";
+}
+
 .signup__signin {
   margin: 20px 0 0;
   color: #68717e;

@@ -1,8 +1,10 @@
 import { useState } from "react";
+import GoogleAuthButton from "./GoogleAuthButton.jsx";
 import "./SignIn.css";
 
 export default function SignIn({
   onSignIn,
+  onGoogleSignIn,
   onSignUp,
   onRequestPasswordReset,
   onResetPassword,
@@ -16,6 +18,7 @@ export default function SignIn({
   const [recoveryEmail, setRecoveryEmail] = useState("");
   const [recoveryCode, setRecoveryCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -87,18 +90,35 @@ export default function SignIn({
   };
 
   return (
-    <>
-      <p className="eyebrow">Your OzaBay</p>
-      <h2>{recoveryMode ? <>Reset your <em>password.</em></> : <>Welcome <em>back.</em></>}</h2>
+    <div className="signin">
+      <div className="signin__header">
+        <p className="signin__eyebrow">Your OzaBay</p>
+        <h2 className="signin__title">
+          {recoveryMode ? (
+            <>
+              Reset your <em>password</em>
+            </>
+          ) : (
+            <>
+              Welcome <em>back</em>
+            </>
+          )}
+        </h2>
+        <p className="signin__subtitle">
+          {recoveryMode
+            ? "Verify your email and choose a new password."
+            : "Sign in to continue to your account, bag, and orders."}
+        </p>
+      </div>
+
       {recoveryMode ? (
         <>
-          <p className="signin-vendor-note">
-            We’ll email a one-time code to your registered address. It expires after 10 minutes.
-            Check your Gmail inbox and Spam folder.
-          </p>
-          <form className="order-form" onSubmit={handleRecoverySubmit}>
-            <label>
-              Email
+          <div className="signin__notice">
+            We’ll email a one-time code to your registered address. It expires in 10 minutes.
+          </div>
+          <form className="signin__form" onSubmit={handleRecoverySubmit}>
+            <label className="signin__field">
+              <span>Email address</span>
               <input
                 name="recoveryEmail"
                 type="email"
@@ -111,8 +131,8 @@ export default function SignIn({
             </label>
             {recoveryStep === "code" && (
               <>
-                <label>
-                  Reset code
+                <label className="signin__field">
+                  <span>Verification code</span>
                   <input
                     name="recoveryCode"
                     inputMode="numeric"
@@ -121,37 +141,59 @@ export default function SignIn({
                     maxLength={6}
                     required
                     value={recoveryCode}
-                    onChange={(event) => setRecoveryCode(event.target.value)}
+                    onChange={(event) =>
+                      setRecoveryCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                    }
                     placeholder="6-digit code"
+                    className="signin__otp"
                   />
                 </label>
-                <label>
-                  New password
-                  <input
-                    name="newPassword"
-                    type="password"
-                    autoComplete="new-password"
-                    minLength={6}
-                    required
-                    value={newPassword}
-                    onChange={(event) => setNewPassword(event.target.value)}
-                    placeholder="At least 6 characters"
-                  />
+                <label className="signin__field">
+                  <span>New password</span>
+                  <div className="signin__password-wrap">
+                    <input
+                      name="newPassword"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      minLength={6}
+                      required
+                      value={newPassword}
+                      onChange={(event) => setNewPassword(event.target.value)}
+                      placeholder="At least 6 characters"
+                    />
+                    <button
+                      type="button"
+                      className="signin__password-toggle"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-pressed={showPassword}
+                    >
+                      {showPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
                 </label>
               </>
             )}
-            {error && <p role="alert">{error}</p>}
-            {passwordHelp && <p role="status">{passwordHelp}</p>}
-            <button className="hero-action" type="submit" disabled={isSubmitting}>
+            {error && (
+              <p className="signin__status signin__status--error" role="alert">
+                {error}
+              </p>
+            )}
+            {passwordHelp && (
+              <p className="signin__status signin__status--ok" role="status">
+                {passwordHelp}
+              </p>
+            )}
+            <button className="signin__submit" type="submit" disabled={isSubmitting}>
               {isSubmitting
                 ? "Please wait…"
                 : recoveryStep === "email"
-                  ? "Send reset code ↗"
-                  : "Reset password ↗"}
+                  ? "Send reset code"
+                  : "Reset password"}
+              {!isSubmitting && <span aria-hidden="true"> ↗</span>}
             </button>
             {recoveryStep === "code" && (
               <button
-                className="text-link signin-resend-code"
+                className="signin__link-btn"
                 type="button"
                 onClick={handleResendCode}
                 disabled={isSubmitting}
@@ -160,25 +202,26 @@ export default function SignIn({
               </button>
             )}
           </form>
-          <p>
+          <p className="signin__footer">
             <button
-              className="text-link"
+              className="signin__link-btn"
               type="button"
               onClick={() => {
                 setRecoveryMode(false);
                 setError("");
                 setPasswordHelp("");
+                setShowPassword(false);
               }}
             >
-              Back to sign in
+              ← Back to sign in
             </button>
           </p>
         </>
       ) : (
         <>
-          <form className="order-form" onSubmit={handleSubmit}>
-            <label>
-              Email
+          <form className="signin__form" onSubmit={handleSubmit}>
+            <label className="signin__field">
+              <span>Email address</span>
               <input
                 name="email"
                 type="email"
@@ -189,39 +232,60 @@ export default function SignIn({
                 placeholder="you@example.com"
               />
             </label>
-            <label>
-              Password
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                minLength={6}
-                required
-                placeholder="Your password"
-              />
+            <label className="signin__field">
+              <span>Password</span>
+              <div className="signin__password-wrap">
+                <input
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  minLength={6}
+                  required
+                  placeholder="Your password"
+                />
+                <button
+                  type="button"
+                  className="signin__password-toggle"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? "Hide" : "Show"}
+                </button>
+              </div>
             </label>
-            <div className="signin-password-help">
-              <button className="text-link" type="button" onClick={handleForgotPassword}>
+            <div className="signin__row">
+              <button className="signin__link-btn" type="button" onClick={handleForgotPassword}>
                 Forgot password?
               </button>
             </div>
-            {error && <p role="alert">{error}</p>}
-            {passwordHelp && <p role="status">{passwordHelp}</p>}
-            <button className="hero-action" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Signing in…" : "Sign in ↗"}
+            {error && (
+              <p className="signin__status signin__status--error" role="alert">
+                {error}
+              </p>
+            )}
+            {passwordHelp && (
+              <p className="signin__status signin__status--ok" role="status">
+                {passwordHelp}
+              </p>
+            )}
+            <button className="signin__submit" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Signing in…" : "Sign in"}
+              {!isSubmitting && <span aria-hidden="true"> ↗</span>}
             </button>
           </form>
-          <p>
+          <div className="signin__divider" aria-hidden="true">
+            <span>or</span>
+          </div>
+          <GoogleAuthButton onAuthenticated={onGoogleSignIn} mode="signin" />
+          <p className="signin__footer">
             New to OzaBay?{" "}
-            <button className="text-link" type="button" onClick={onSignUp}>
+            <button className="signin__link-btn signin__link-btn--strong" type="button" onClick={onSignUp}>
               Create an account
             </button>
           </p>
-          <p className="signin-vendor-note">
-            Vendor accounts open the product studio after sign-in.
-          </p>
+          <p className="signin__vendor-note">Vendor accounts open the product studio after sign-in.</p>
         </>
       )}
-    </>
+    </div>
   );
 }

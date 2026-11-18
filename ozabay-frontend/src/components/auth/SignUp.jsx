@@ -1,4 +1,5 @@
 import { useState } from "react";
+import GoogleAuthButton from "./GoogleAuthButton.jsx";
 import "./SignUp.css";
 
 async function readResponse(response) {
@@ -229,6 +230,14 @@ export default function SignUp({ onSignUp, onSignIn, initialAccountType = "user"
           {isSubmitting ? "Creating account…" : `Create ${accountType} account ↗`}
         </button>
       </form>
+      {accountType === "user" && (
+        <>
+          <div className="signup__divider" aria-hidden="true">
+            <span>or</span>
+          </div>
+          <GoogleAuthButton onAuthenticated={onSignUp} mode="signup" />
+        </>
+      )}
       <p className="signup__signin">
         Already have an account?{" "}
         <button className="text-link" type="button" onClick={onSignIn}>

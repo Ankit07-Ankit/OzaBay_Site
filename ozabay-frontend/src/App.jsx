@@ -22,7 +22,6 @@ import SignUp from "./components/auth/SignUp.jsx";
 import AccountSection from "./components/account/AccountSection.jsx";
 import VendorDashboard from "./components/vendor/VendorDashboard.jsx";
 import { IMG } from "./data/assets.js";
-import { PRODUCTS } from "./data/products.js";
 import { INDIA_CRAFTS } from "./data/regionalCrafts.js";
 import { REGIONAL_CRAFT_PRODUCTS } from "./data/regionalCraftProducts.js";
 import { ARTISANS, COLLECTIONS, CUSTOM_PRICES } from "./data/siteContent.js";
@@ -52,6 +51,33 @@ const remoteProductList = (entries) =>
   (Array.isArray(entries) ? entries : [])
     .map(normalizeRemoteProduct)
     .filter(Boolean);
+
+const loadRazorpay = () =>
+  new Promise((resolve, reject) => {
+    if (window.Razorpay) {
+      resolve(window.Razorpay);
+      return;
+    }
+
+    const existing = document.querySelector("script[data-razorpay-checkout]");
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.Razorpay), { once: true });
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("Unable to load Razorpay checkout. Check your connection.")),
+        { once: true },
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.dataset.razorpayCheckout = "true";
+    script.onload = () => resolve(window.Razorpay);
+    script.onerror = () => reject(new Error("Unable to load Razorpay checkout. Check your connection."));
+    document.body.appendChild(script);
+  });
 
 // Local items win on duplicate ids; server-only items are appended.
 const mergeSavedProducts = (local, remote) => {
@@ -290,6 +316,9 @@ export default function App() {
     payment: "Cash on delivery",
   });
   const [placedOrder, setPlacedOrder] = useState(null);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
+  const pendingCheckoutAuth = useRef(false);
   const [orders, setOrders] = useState(() => {
     try {
       const key = account?._id
@@ -305,12 +334,15 @@ export default function App() {
   const [reviewLoginRequired, setReviewLoginRequired] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [craftRoute, setCraftRoute] = useState(() => {
+    if (account?.accountType === "vendor") return null;
     const m = window.location.pathname.match(/^\/crafts\/([^/]+)/);
     return m ? m[1] : null;
   });
-  const [vendorRoute, setVendorRoute] = useState(
-    () => window.location.pathname === "/vendor",
-  );
+  const [vendorRoute, setVendorRoute] = useState(() => {
+    if (account?.accountType === "vendor") return true;
+    if (account?.accountType === "user") return false;
+    return window.location.pathname === "/vendor";
+  });
   const [gift, setGift] = useState({
     occasion: "Housewarming",
     recipient: "Parents",
@@ -320,25 +352,33 @@ export default function App() {
     message: "Wishing you a beautiful new beginning.",
   });
   const perPage = 12;
-  const categories = [
-    "All",
-    ...COLLECTIONS.map((c) => c.filter),
-    "Bangles",
-    "Blades",
-    "Pendants",
-  ];
-  const catalogProducts = useMemo(() => {
-    const items = [];
-    for (
-      let index = 0;
-      index < Math.max(PRODUCTS.length, registeredProducts.length);
-      index++
-    ) {
-      if (PRODUCTS[index]) items.push(PRODUCTS[index]);
-      if (registeredProducts[index]) items.push(registeredProducts[index]);
-    }
-    return items;
+  // Categories are derived dynamically from vendor-registered products only
+  const categories = useMemo(() => {
+    const cats = new Set(registeredProducts.map((p) => p.category).filter(Boolean));
+    return ["All", ...cats];
   }, [registeredProducts]);
+
+  // Registered products grouped by their category for the Collections section
+  const registeredCollections = useMemo(() => {
+    const groups = new Map();
+    registeredProducts.forEach((p) => {
+      const cat = p.category?.trim();
+      if (!cat) return;
+      if (!groups.has(cat)) {
+        groups.set(cat, {
+          category: cat,
+          coverImage: p.image || p.images?.[0],
+          material: p.material || "Handmade",
+          count: 0,
+        });
+      }
+      const g = groups.get(cat);
+      g.count += 1;
+    });
+    return Array.from(groups.values());
+  }, [registeredProducts]);
+
+  const catalogProducts = useMemo(() => registeredProducts, [registeredProducts]);
   const searchMatches = useMemo(
     () =>
       catalogProducts
@@ -388,6 +428,18 @@ export default function App() {
         ? IMG.indigo
         : IMG.sculptural;
   const go = (id) => {
+    if (account?.accountType === "vendor") {
+      // Vendors are private to the maker studio
+      const vendorSectionMap = {
+        products: "vendor-product-list",
+        collections: "vendor-locations",
+        artisans: "vendor-dashboard",
+        home: "vendor-dashboard",
+      };
+      const targetId = vendorSectionMap[id] || "vendor-dashboard";
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     if (vendorRoute || craftRoute) {
       window.history.pushState({}, "", `/#${id}`);
       setVendorRoute(false);
@@ -412,6 +464,7 @@ export default function App() {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
   const openStateCraft = (state, craft = null) => {
+    if (account?.accountType === "vendor") return;
     const slug = stateSlug(state);
     const path = `/crafts/${slug}${craft ? `?craft=${encodeURIComponent(craft)}` : ""}`;
     window.history.pushState({ craftRoute: slug }, "", path);
@@ -420,6 +473,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const backToAtlas = () => {
+    if (account?.accountType === "vendor") return;
     window.history.pushState({}, "", "/#crafts-india");
     setCraftRoute(null);
     setTimeout(
@@ -427,18 +481,64 @@ export default function App() {
         document
           .getElementById("crafts-india")
           ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      40,
+        40,
     );
   };
+
+  // Strict Private Route Enforcement:
+  // 1. Vendors cannot access user pages (must stay on /vendor)
+  // 2. Users cannot access vendor page (must stay on customer pages)
+  useEffect(() => {
+    const isVendor = account?.accountType === "vendor";
+    const isUser = account?.accountType === "user";
+    const path = window.location.pathname;
+
+    if (isVendor) {
+      if (path !== "/vendor" || !vendorRoute || craftRoute) {
+        setVendorRoute(true);
+        setCraftRoute(null);
+        navigate("/vendor", { replace: true });
+      }
+      return;
+    }
+
+    if (isUser) {
+      if (path === "/vendor" || vendorRoute) {
+        setVendorRoute(false);
+        navigate("/", { replace: true });
+      }
+      return;
+    }
+  }, [account?.accountType, vendorRoute, craftRoute, navigate]);
+
   useEffect(() => {
     const onPop = () => {
-      const m = window.location.pathname.match(/^\/crafts\/([^/]+)/);
+      const isVendor = account?.accountType === "vendor";
+      const isUser = account?.accountType === "user";
+      const path = window.location.pathname;
+
+      if (isVendor) {
+        setVendorRoute(true);
+        setCraftRoute(null);
+        if (path !== "/vendor") {
+          navigate("/vendor", { replace: true });
+        }
+        return;
+      }
+
+      if (isUser && path === "/vendor") {
+        setVendorRoute(false);
+        navigate("/", { replace: true });
+        return;
+      }
+
+      const m = path.match(/^\/crafts\/([^/]+)/);
       setCraftRoute(m ? m[1] : null);
-      setVendorRoute(window.location.pathname === "/vendor");
+      setVendorRoute(path === "/vendor");
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  }, [account?.accountType, navigate]);
   // Pendent images may be saved as .png, .jpg or .jpeg — if one fails to load, try the next.
   useEffect(() => {
     const exts = [".png", ".jpg", ".jpeg"];
@@ -732,28 +832,132 @@ export default function App() {
     setOrderSent(true);
     setCustomStep(1);
   };
-  const placeOrder = (e) => {
-    e.preventDefault();
-    if (!cart.length) return;
-    const id = `OZ-${Date.now().toString().slice(-7)}`;
+  const completeOrder = (savedOrder) => {
     const order = {
-      id,
-      createdAt: new Date().toISOString(),
-      items: cart,
-      total: cartTotal,
-      customer: checkout,
-      status: "Crafting",
+      id: savedOrder._id,
+      createdAt: savedOrder.createdAt,
+      updatedAt: savedOrder.updatedAt,
+      items: savedOrder.items.map((item) => ({
+        name: item.name,
+        productId: item.productId,
+        qty: item.quantity,
+        priceValue: item.unitPrice,
+        fulfillmentStatus: item.fulfillmentStatus,
+        deliveredAt: item.deliveredAt,
+        cashOnDelivery: item.cashOnDelivery,
+        returnRequest: item.returnRequest,
+      })),
+      total: savedOrder.total,
+      customer: savedOrder.customer,
+      status: savedOrder.orderStatus,
+      paymentMethod: savedOrder.paymentMethod,
+      paymentStatus: savedOrder.paymentStatus,
+      paymentDetails: savedOrder.paymentDetails,
+      cancelledAt: savedOrder.cancelledAt,
     };
-    const nextOrders = [order, ...orders];
-    const key = account?._id
-      ? `ozabay-orders-${account._id}`
-      : "ozabay-guest-orders";
-    localStorage.setItem(key, JSON.stringify(nextOrders));
-    localStorage.setItem("ozabay-last-order", JSON.stringify(order));
-    setOrders(nextOrders);
+    setOrders((current) => [order, ...current.filter((item) => item.id !== order.id)]);
     setPlacedOrder(order);
     setCart([]);
+    setCheckoutError("");
     setModal("order-success");
+  };
+  const placeOrder = async (e) => {
+    e.preventDefault();
+    if (!cart.length) return;
+    if (account?.accountType !== "user") {
+      pendingCheckoutAuth.current = true;
+      setAuthView("signin");
+      setModal("account");
+      return;
+    }
+    if (cart.some((item) => !/^vendor-[a-fA-F0-9]{24}$/.test(String(item.id)))) {
+      setCheckoutError(
+        "Custom-made items need a separate quote and can't be included in this checkout. Remove them from your cart to continue.",
+      );
+      return;
+    }
+
+    setCheckoutBusy(true);
+    setCheckoutError("");
+    try {
+      const { payment, ...customer } = checkout;
+      const { order, razorpay } = await requestAuthenticatedApi("/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          items: cart.map((item) => ({
+            productId: item.id,
+            quantity: item.qty,
+          })),
+          customer,
+          paymentMethod: payment,
+        }),
+      });
+
+      if (payment === "Cash on delivery") {
+        completeOrder(order);
+        return;
+      }
+
+      await loadRazorpay();
+      if (!window.Razorpay) {
+        throw new Error("Razorpay checkout is unavailable in this browser.");
+      }
+      if (!razorpay?.keyId || !razorpay?.orderId) {
+        throw new Error("Online payment could not be initialized. Please try again.");
+      }
+
+      const paymentWindow = new window.Razorpay({
+        key: razorpay.keyId,
+        amount: razorpay.amount,
+        currency: razorpay.currency || "INR",
+        name: "OzaBay",
+        description: "Handcrafted marketplace order",
+        order_id: razorpay.orderId,
+        prefill: {
+          name: checkout.name,
+          email: checkout.email,
+          contact: checkout.phone,
+        },
+        theme: { color: "#17365f" },
+        handler: async (paymentResult) => {
+          try {
+            const verified = await requestAuthenticatedApi(
+              "/orders/verify-payment",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  orderId: order._id,
+                  ...paymentResult,
+                }),
+              },
+            );
+            completeOrder(verified.order);
+          } catch (error) {
+            setCheckoutError(
+              `Payment was received but could not be confirmed here. Contact support with order ${order._id}. ${error.message}`,
+            );
+          } finally {
+            setCheckoutBusy(false);
+          }
+        },
+        modal: {
+          ondismiss: () => setCheckoutBusy(false),
+          escape: true,
+          confirm_close: true,
+        },
+      });
+      paymentWindow.on("payment.failed", (response) => {
+        console.error("Razorpay payment failed:", response?.error);
+        setCheckoutError(
+          response?.error?.description || "Online payment failed. Please try again.",
+        );
+        setCheckoutBusy(false);
+      });
+      paymentWindow.open();
+    } catch (error) {
+      setCheckoutError(error.message);
+      setCheckoutBusy(false);
+    }
   };
   const finishAuthentication = (data) => {
     if (!data) return;
@@ -764,7 +968,13 @@ export default function App() {
       setAccessToken(token);
     }
     setAccount(user);
-    setModal(null);
+    if (pendingCheckoutAuth.current && user.accountType === "user") {
+      pendingCheckoutAuth.current = false;
+      setModal("checkout");
+    } else {
+      pendingCheckoutAuth.current = false;
+      setModal(null);
+    }
     setCraftRoute(null);
     const isVendor = user.accountType === "vendor";
     setVendorRoute(isVendor);
@@ -846,15 +1056,101 @@ export default function App() {
     return refreshAccessTokenPromise;
   };
   const fetchVendorProducts = async () => {
+    setVendorProductsLoaded(false);
     try {
       const result = await requestVendorApi("/products");
       setVendorProducts(Array.isArray(result.products) ? result.products : []);
     } catch (error) {
       console.error("Unable to load vendor products:", error);
+      setVendorProducts([]);
     } finally {
       setVendorProductsLoaded(true);
     }
   };
+
+  useEffect(() => {
+    if (account?.accountType === "vendor") {
+      void fetchVendorProducts();
+      return;
+    }
+    setVendorProducts([]);
+    setVendorProductsLoaded(false);
+  }, [account?._id, account?.accountType]);
+
+  useEffect(() => {
+    if (account?.accountType !== "user") {
+      setOrders([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadOrders = ({ silent = false } = {}) => {
+      requestAuthenticatedApi("/orders/mine")
+        .then(({ orders: savedOrders }) => {
+          if (cancelled) return;
+          setOrders(
+            (savedOrders || []).map((order) => ({
+              id: order._id,
+              createdAt: order.createdAt,
+              updatedAt: order.updatedAt,
+              items: order.items.map((item) => ({
+                name: item.name,
+                productId: item.productId,
+                qty: item.quantity,
+                priceValue: item.unitPrice,
+                fulfillmentStatus: item.fulfillmentStatus,
+                deliveredAt: item.deliveredAt,
+                cashOnDelivery: item.cashOnDelivery,
+                returnRequest: item.returnRequest,
+              })),
+              total: order.total,
+              customer: order.customer,
+              status: order.orderStatus,
+              paymentMethod: order.paymentMethod,
+              paymentStatus: order.paymentStatus,
+              paymentDetails: order.paymentDetails,
+              cancelledAt: order.cancelledAt,
+            })),
+          );
+        })
+        .catch((error) => {
+          if (!cancelled && !silent) {
+            console.error("Unable to load customer orders:", error);
+          }
+        });
+    };
+
+    loadOrders();
+    const interval = window.setInterval(() => loadOrders({ silent: true }), 15000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadOrders({ silent: true });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [account?._id, account?.accountType]);
+
+  useEffect(() => {
+    if (account?.accountType !== "user") return;
+    const savedLocation = account.deliveryLocation || {};
+    setCheckout((current) => ({
+      ...current,
+      name: current.name || savedLocation.fullName || account.name || "",
+      email: current.email || account.email || "",
+      phone: current.phone || savedLocation.mobile || "",
+      address:
+        current.address ||
+        [savedLocation.building, savedLocation.area, savedLocation.address]
+          .filter(Boolean)
+          .join(", "),
+      city: current.city || savedLocation.city || "",
+      pincode: current.pincode || savedLocation.pincode || "",
+    }));
+  }, [account?._id, account?.accountType]);
 
   const requestVendorApi = async (path, options = {}) => {
     let token = accessToken || sessionStorage.getItem("ozabay-access-token");
@@ -899,6 +1195,72 @@ export default function App() {
       throw new Error(result.message || "Unable to complete this request.");
     return result;
   };
+  const cancelCustomerOrder = async (orderId) => {
+    const result = await requestAuthenticatedApi(
+      `/orders/${encodeURIComponent(orderId)}/cancel`,
+      { method: "POST" },
+    );
+    const savedOrder = result.order;
+    const order = {
+      id: savedOrder._id,
+      createdAt: savedOrder.createdAt,
+      updatedAt: savedOrder.updatedAt,
+      items: savedOrder.items.map((item) => ({
+        name: item.name,
+        productId: item.productId,
+        qty: item.quantity,
+        priceValue: item.unitPrice,
+        fulfillmentStatus: item.fulfillmentStatus,
+        deliveredAt: item.deliveredAt,
+        cashOnDelivery: item.cashOnDelivery,
+        returnRequest: item.returnRequest,
+      })),
+      total: savedOrder.total,
+      customer: savedOrder.customer,
+      status: savedOrder.orderStatus,
+      paymentMethod: savedOrder.paymentMethod,
+      paymentStatus: savedOrder.paymentStatus,
+      paymentDetails: savedOrder.paymentDetails,
+      cancelledAt: savedOrder.cancelledAt,
+    };
+    setOrders((current) =>
+      current.map((existing) => (existing.id === order.id ? order : existing)),
+    );
+    return result;
+  };
+  const requestOrderItemReturn = async (orderId, productId, reason = "") => {
+    const result = await requestAuthenticatedApi(
+      `/orders/${encodeURIComponent(orderId)}/items/${encodeURIComponent(productId)}/return`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    );
+    const savedOrder = result.order;
+    const order = {
+      id: savedOrder._id,
+      createdAt: savedOrder.createdAt,
+      updatedAt: savedOrder.updatedAt,
+      items: savedOrder.items.map((item) => ({
+        name: item.name,
+        productId: item.productId,
+        qty: item.quantity,
+        priceValue: item.unitPrice,
+        fulfillmentStatus: item.fulfillmentStatus,
+        deliveredAt: item.deliveredAt,
+        cashOnDelivery: item.cashOnDelivery,
+        returnRequest: item.returnRequest,
+      })),
+      total: savedOrder.total,
+      customer: savedOrder.customer,
+      status: savedOrder.orderStatus,
+      paymentMethod: savedOrder.paymentMethod,
+      paymentStatus: savedOrder.paymentStatus,
+      paymentDetails: savedOrder.paymentDetails,
+      cancelledAt: savedOrder.cancelledAt,
+    };
+    setOrders((current) =>
+      current.map((existing) => (existing.id === order.id ? order : existing)),
+    );
+    return result;
+  };
   const submitProductReview = async (product, review) => {
     const result = await requestAuthenticatedApi(
       `/products/${encodeURIComponent(product.id)}/reviews`,
@@ -916,6 +1278,20 @@ export default function App() {
     setAuthView("signin");
     setModal("account");
   };
+  const requestPasswordChange = async (currentPassword) => {
+    return requestAuthenticatedApi("/auth/change-password/request", {
+      method: "POST",
+      body: JSON.stringify({ password: currentPassword }),
+    });
+  };
+
+  const confirmPasswordChange = async (payload) => {
+    return requestAuthenticatedApi("/auth/change-password/confirm", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  };
+
   const updateProfile = async (changes) => {
     let token = accessToken || sessionStorage.getItem("ozabay-access-token");
     if (!token) token = await refreshAccessToken();
@@ -975,13 +1351,47 @@ export default function App() {
     sessionStorage.removeItem("ozabay-access-token");
     setAccessToken("");
     setAccount(null);
+    setVendorProducts([]);
+    setVendorProductsLoaded(false);
     setVendorRoute(false);
     setAuthView("signin");
     setModal(null);
     navigate("/", { replace: true });
   };
   const openAccount = () => setModal("account");
-  const openNav = (id) => {
+  const openNav = (id, extra) => {
+    if (account?.accountType === "vendor" || vendorRoute) {
+      if (id === "dashboard") {
+        setVendorRoute(true);
+        navigate("/vendor");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      if (id === "listings") {
+        setVendorRoute(true);
+        navigate("/vendor");
+        setTimeout(() => document.getElementById("vendor-product-list")?.scrollIntoView({ behavior: "smooth" }), 60);
+        return;
+      }
+      if (id === "add-product") {
+        setVendorRoute(true);
+        navigate("/vendor");
+        setTimeout(() => document.getElementById("vendor-product-form")?.scrollIntoView({ behavior: "smooth" }), 60);
+        return;
+      }
+      if (id === "locations") {
+        setVendorRoute(true);
+        navigate("/vendor");
+        setTimeout(() => document.getElementById("vendor-locations")?.scrollIntoView({ behavior: "smooth" }), 60);
+        return;
+      }
+      if (id === "analytics" || id === "orders") {
+        setVendorRoute(true);
+        navigate("/vendor");
+        setTimeout(() => document.getElementById("vendor-orders")?.scrollIntoView({ behavior: "smooth" }), 60);
+        return;
+      }
+    }
     const map = {
       shop: "products",
       collections: "collections",
@@ -990,6 +1400,10 @@ export default function App() {
       journal: "journal",
       about: "story",
     };
+    if (id === "collections" && extra) {
+      openCollection(extra);
+      return;
+    }
     if (id === "sell") {
       if (account?.accountType === "vendor") {
         setVendorRoute(true);
@@ -1055,18 +1469,27 @@ export default function App() {
       />
       <div className="page-vignette" aria-hidden="true" />
       <Navbar
-        activeId={vendorRoute ? "sell" : "shop"}
+        activeId={vendorRoute ? "dashboard" : "shop"}
         cartCount={cartCount}
-        isVendor={account?.accountType === "vendor"}
+        isVendor={account?.accountType === "vendor" || vendorRoute}
+        registeredProducts={registeredProducts}
         onSearchClick={() => setModal("search")}
         onAccountClick={openAccount}
         onCartClick={() => setModal("cart")}
         onNavClick={openNav}
+        onSelectCategory={openCollection}
       />
       <main id="home">
         {vendorRoute ? (
           account?.accountType === "vendor" ? (
-            <VendorDashboard account={account} request={requestVendorApi} />
+            <VendorDashboard
+              account={account}
+              request={requestVendorApi}
+              onGoToMarketplace={() => {
+                setVendorRoute(false);
+                navigate("/", { replace: true });
+              }}
+            />
           ) : (
             <section className="vendor-access-page">
               <div className="oz-container">
@@ -1172,7 +1595,7 @@ export default function App() {
                     </div>
                   </Reveal>
                   <div className="recent-rail">
-                    {PRODUCTS.filter((p) => recentlyViewed.includes(p.id)).map(
+                    {catalogProducts.filter((p) => recentlyViewed.includes(p.id)).map(
                       (p) => (
                         <button
                           key={p.id}
@@ -1208,6 +1631,74 @@ export default function App() {
               </div>
             )}
 
+            {/* ── Curated Collections from Registered Vendor Products by Category ── */}
+            <section id="collections" className="oz-section oz-collections">
+              <div className="oz-container">
+                <Reveal>
+                  <div className="section-head">
+                    <div>
+                      <p className="eyebrow">Artisan Collections</p>
+                      <h2>
+                        Crafted by <em>category.</em>
+                      </h2>
+                    </div>
+                    <p>
+                      Explore pieces registered by independent makers across India,
+                      organized into craft collections.
+                    </p>
+                  </div>
+                </Reveal>
+
+                {registeredCollections.length > 0 ? (
+                  <div className="collection-grid">
+                    {registeredCollections.map((group) => (
+                      <article
+                        key={group.category}
+                        className="collection-card"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => openCollection(group.category)}
+                        >
+                          <div className="collection-card__image">
+                            {group.coverImage ? (
+                              <img src={group.coverImage} alt={group.category} />
+                            ) : (
+                              <div className="collection-card__placeholder">✦</div>
+                            )}
+                            <span>{group.count} {group.count === 1 ? "piece" : "pieces"}</span>
+                          </div>
+                          <div className="collection-card__copy">
+                            <div>
+                              <h3>{group.category}</h3>
+                              <p>{group.material} · Made by verified makers</p>
+                            </div>
+                            <strong>Explore ↗</strong>
+                          </div>
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="collection-empty-placeholder">
+                    <span className="collection-empty-icon">🏺</span>
+                    <h3>Collections in the making</h3>
+                    <p>
+                      Artisan makers are currently registering their handcrafted pieces.
+                      Check back soon or explore the active marketplace.
+                    </p>
+                    <button
+                      type="button"
+                      className="hero-action"
+                      onClick={() => go("products")}
+                    >
+                      View Marketplace ↗
+                    </button>
+                  </div>
+                )}
+              </div>
+            </section>
+
             <section id="products" className="oz-section oz-products">
               <div className="oz-container">
                 <Reveal>
@@ -1219,10 +1710,11 @@ export default function App() {
                       </h2>
                     </div>
                     <p>
-                      {PRODUCTS.length + registeredProducts.length} pieces
-                      across the marketplace. Explore maker listings alongside
-                      OzaBay edits, with product stories, 3D views and
-                      state-wise craft collections.
+                      {registeredProductsLoaded
+                        ? registeredProducts.length > 0
+                          ? `${registeredProducts.length} ${registeredProducts.length === 1 ? "piece" : "pieces"} across the marketplace. Explore maker listings with product stories, 3D views and state-wise craft collections.`
+                          : "Makers are setting up their listings — check back soon."
+                        : "Loading maker listings…"}
                     </p>
                   </div>
                 </Reveal>
@@ -1266,6 +1758,41 @@ export default function App() {
                     </select>
                   </div>
                 </div>
+                {/* Loading state */}
+                {!registeredProductsLoaded && !registeredProductsError && (
+                  <div className="catalog-loading">
+                    <div className="catalog-loading__spinner" aria-hidden="true" />
+                    <p>Loading maker listings…</p>
+                  </div>
+                )}
+
+                {/* Loaded but no products registered at all */}
+                {registeredProductsLoaded && registeredProducts.length === 0 && (
+                  <div className="empty-state empty-state--marketplace">
+                    <span className="empty-state__icon" aria-hidden="true">✦</span>
+                    <h3>No maker listings yet.</h3>
+                    <p>Makers are setting up their storefronts — check back soon.</p>
+                  </div>
+                )}
+
+                {/* Products loaded, but filter/search returns nothing */}
+                {registeredProductsLoaded && registeredProducts.length > 0 && visible.length === 0 && (
+                  <div className="empty-state">
+                    <h3>No pieces found.</h3>
+                    <p>Try another search or collection.</p>
+                    <button
+                      className="hero-action"
+                      onClick={() => {
+                        setFilter("All");
+                        setQuery("");
+                        setPriceBand(null);
+                      }}
+                    >
+                      Reset edit ↗
+                    </button>
+                  </div>
+                )}
+
                 {visible.length ? (
                   <div className="product-grid">
                     {visible.map((product, index) => (
@@ -1288,11 +1815,7 @@ export default function App() {
                           >
                             <img src={product.image} alt={product.name} />
                             <span className="product-badge">
-                              {product.vendorProduct
-                                ? "Maker listing"
-                                : index < 3 && page === 1
-                                  ? "OzaBay Edit"
-                                  : product.category}
+                              {product.category || "Maker listing"}
                             </span>
                             <button
                               type="button"
@@ -1359,22 +1882,7 @@ export default function App() {
                       </Reveal>
                     ))}
                   </div>
-                ) : (
-                  <div className="empty-state">
-                    <h3>No pieces found.</h3>
-                    <p>Try another search or collection.</p>
-                    <button
-                      className="hero-action"
-                      onClick={() => {
-                        setFilter("All");
-                        setQuery("");
-                        setPriceBand(null);
-                      }}
-                    >
-                      Reset edit ↗
-                    </button>
-                  </div>
-                )}
+                ) : null}
                 {visible.length < shown.length && (
                   <div className="load-more">
                     <span>
@@ -1726,45 +2234,122 @@ export default function App() {
       </main>
 
       <footer className="oz-footer">
-        <div className="oz-container footer-grid">
-          <div>
-            <span>OzaBay</span>
-            <p>
-              Indian craft, contemporary living.
-              <br />
-              Frontend marketplace experience.
+        {/* ── Footer Pillars Strip ── */}
+        <div className="oz-footer__pillars">
+          <div className="oz-container oz-footer__pillars-grid">
+            <div className="oz-footer__pillar-item">
+              <span className="oz-footer__pillar-icon">🏺</span>
+              <div>
+                <strong>Direct Maker Studios</strong>
+                <small>Handcrafted in small batches across India</small>
+              </div>
+            </div>
+            <div className="oz-footer__pillar-item">
+              <span className="oz-footer__pillar-icon">✦</span>
+              <div>
+                <strong>Craft Passport Verified</strong>
+                <small>Material transparency & artisan origin</small>
+              </div>
+            </div>
+            <div className="oz-footer__pillar-item">
+              <span className="oz-footer__pillar-icon">🌿</span>
+              <div>
+                <strong>Conscious & Sustainable</strong>
+                <small>Plastic-free packing & fair artisan pricing</small>
+              </div>
+            </div>
+            <div className="oz-footer__pillar-item">
+              <span className="oz-footer__pillar-icon">📦</span>
+              <div>
+                <strong>Inspected & Insured Transit</strong>
+                <small>Safely packed to travel across 28 states</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Main Footer Grid ── */}
+        <div className="oz-container footer-grid footer-grid--premium">
+          <div className="footer-brand-col">
+            <a className="footer-brand-logo" href="#home">
+              <span className="footer-logo-mark">✦</span> OzaBay
+            </a>
+            <p className="footer-brand-copy">
+              Connecting generational Indian craft traditions with mindful, contemporary living. Every piece carries the signature marks of human hands.
             </p>
+            <div className="footer-craft-origin">
+              <span className="footer-origin-dot" />
+              <span>Artisan Ateliers in Jaipur · Molela · Saharanpur · Khurja · Kutch</span>
+            </div>
           </div>
+
           <div>
-            <span>Explore</span>
+            <span className="footer-heading">Collections</span>
+            <button type="button" onClick={() => openCollection("Ceramics")}>Ceramics & Stoneware</button>
+            <button type="button" onClick={() => openCollection("Blue Pottery")}>Jaipur Blue Pottery</button>
+            <button type="button" onClick={() => openCollection("Terracotta")}>Fired Terracotta</button>
+            <button type="button" onClick={() => openCollection("Textiles")}>Handloom Textiles</button>
+            <button type="button" onClick={() => openCollection("Woodcraft")}>Carved Woodcraft</button>
+            <button type="button" onClick={() => openCollection("Metalcraft")}>Brass & Kansa</button>
+            <button type="button" onClick={() => openCollection("Jewellery")}>Artisan Jewellery</button>
+            <button type="button" onClick={() => go("collections")}>View All Collections ↗</button>
+          </div>
+
+          <div>
+            <span className="footer-heading">The Atelier</span>
+            <button type="button" onClick={() => go("products")}>The Marketplace</button>
+            <button type="button" onClick={() => go("artisans")}>Meet the Makers</button>
+            <button type="button" onClick={() => go("crafts-india")}>India Craft Atlas</button>
+            <button type="button" onClick={() => go("create")}>Create Your Own</button>
+            <button type="button" onClick={() => setModal("corporate")}>Corporate Gifting</button>
+            <button type="button" onClick={() => setModal("about")}>Our Story</button>
+          </div>
+
+          <div>
+            <span className="footer-heading">Artisan Hub</span>
+            <button type="button" onClick={() => openNav("sell")}>Sell on OzaBay</button>
+            <button type="button" onClick={() => openNav("sell")}>Maker Studio Access</button>
+            <button type="button" onClick={() => setModal("corporate")}>Craft Commissions</button>
+            <button type="button" onClick={() => openNav("sell")}>Shop Locations</button>
+            <button type="button" onClick={() => setModal("support")}>Partner Standards</button>
+          </div>
+
+          <div>
+            <span className="footer-heading">Your Space & Care</span>
+            <button type="button" onClick={openAccount}>Artisan Account</button>
             {account?.accountType !== "vendor" && (
               <>
-                <button onClick={() => go("products")}>Shop</button>
-                <button onClick={() => go("collections")}>Collections</button>
-                <button onClick={() => go("artisans")}>Artisans</button>
-                <button onClick={() => go("create")}>Create Your Own</button>
-              </>
-            )}
-          </div>
-          <div>
-            <span>OzaBay</span>
-            <button onClick={() => setModal("about")}>About</button>
-            <button onClick={() => setModal("corporate")}>Corporate</button>
-            <button onClick={() => openNav("sell")}>Sell on OzaBay</button>
-            <button onClick={() => setModal("support")}>Support</button>
-          </div>
-          <div>
-            <span>Your space</span>
-            <button onClick={openAccount}>Account</button>
-            {account?.accountType !== "vendor" && (
-              <>
-                <button onClick={() => setModal("wishlist")}>
-                  Wishlist ({wish.length})
+                <button type="button" onClick={() => setModal("wishlist")}>
+                  Saved Wishlist ({wish.length})
                 </button>
-                <button onClick={() => setModal("cart")}>Bag ({cartCount})</button>
-                <button onClick={() => setModal("tracking")}>Track order</button>
+                <button type="button" onClick={() => setModal("cart")}>
+                  Your Bag ({cartCount})
+                </button>
+                <button type="button" onClick={() => setModal("tracking")}>
+                  Track Craft Order
+                </button>
               </>
             )}
+            <button type="button" onClick={() => setModal("support")}>Customer Concierge</button>
+            <button type="button" onClick={() => setModal("support")}>Shipping & Returns</button>
+          </div>
+        </div>
+
+        {/* ── Footer Bottom Copyright & Badges Bar ── */}
+        <div className="oz-footer__bottom">
+          <div className="oz-container oz-footer__bottom-inner">
+            <p className="oz-footer__copyright">
+              © {new Date().getFullYear()} OzaBay Crafts Pvt. Ltd. Preserving slow, living craft traditions across India 🇮🇳
+            </p>
+            <div className="oz-footer__legal-links">
+              <button type="button" onClick={() => setModal("about")}>Craft Transparency</button>
+              <span>·</span>
+              <button type="button" onClick={() => setModal("support")}>Fair Artisan Charter</button>
+              <span>·</span>
+              <button type="button" onClick={() => setModal("support")}>Terms & Conditions</button>
+              <span>·</span>
+              <button type="button" onClick={() => setModal("support")}>Privacy Policy</button>
+            </div>
           </div>
         </div>
       </footer>
@@ -2244,6 +2829,8 @@ export default function App() {
                     bag={cart}
                     bagTotal={cartTotal}
                     onSaveProfile={updateProfile}
+                    onRequestPasswordChange={requestPasswordChange}
+                    onConfirmPasswordChange={confirmPasswordChange}
                     onSaveLocation={saveDeliveryLocation}
                     onRemoveFavorite={(id) =>
                       setWish((current) =>
@@ -2261,10 +2848,13 @@ export default function App() {
                     }}
                     onLogout={logout}
                     orders={orders}
+                    onCancelOrder={cancelCustomerOrder}
+                    onRequestOrderItemReturn={requestOrderItemReturn}
                   />
                 ) : authView === "signin" ? (
                   <SignIn
                     onSignIn={signIn}
+                    onGoogleSignIn={signUp}
                     onRequestPasswordReset={requestPasswordReset}
                     onResetPassword={resetPassword}
                     onSignUp={() => {
@@ -2460,117 +3050,222 @@ export default function App() {
             {modal === "checkout" && (
               <>
                 <button
-                  className="modal-close"
+                  className="modal-close checkout-back-btn"
                   onClick={() => setModal("cart")}
+                  aria-label="Back to cart"
                 >
-                  ×
+                  ←
                 </button>
-                <div className="checkout-grid">
-                  <div>
-                    <p className="eyebrow">Checkout</p>
-                    <h2>
-                      Make it <em>yours.</em>
+                <div className="checkout-shell">
+                  {/* ── LEFT PANEL ─ Order Summary ── */}
+                  <div className="checkout-panel checkout-panel--left">
+                    <p className="eyebrow">Secure Checkout</p>
+                    <h2 className="checkout-heading">
+                      Almost <em>there.</em>
                     </h2>
-                    <p>
-                      Frontend checkout is ready for testing. Payment remains
-                      simulated until the backend/payment layer is connected.
-                    </p>
-                    <div className="order-summary">
-                      <span>{cartCount} pieces</span>
-                      <strong>{money(cartTotal)}</strong>
+
+                    {/* Mini cart recap */}
+                    <div className="checkout-recap">
+                      {cart.map((p) => (
+                        <div key={p.id} className="checkout-recap__item">
+                          <div className="checkout-recap__img-wrap">
+                            <img src={p.image} alt={p.name} />
+                            <span className="checkout-recap__qty">{p.qty}</span>
+                          </div>
+                          <div className="checkout-recap__info">
+                            <strong>{p.name}</strong>
+                            <span>{p.custom ? "Custom · made to order" : "Handmade"}</span>
+                          </div>
+                          <strong className="checkout-recap__price">{money(p.priceValue * p.qty)}</strong>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Totals */}
+                    <div className="checkout-totals">
+                      <div className="checkout-totals__row">
+                        <span>Subtotal</span>
+                        <span>{money(cartTotal)}</span>
+                      </div>
+                      <div className="checkout-totals__row">
+                        <span>Shipping</span>
+                        <span className="checkout-totals__free">Free</span>
+                      </div>
+                      <div className="checkout-totals__row checkout-totals__row--total">
+                        <strong>Total</strong>
+                        <strong>{money(cartTotal)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Trust badges */}
+                    <div className="checkout-trust">
+                      <div className="checkout-trust__badge">
+                        <span className="checkout-trust__icon">🔒</span>
+                        <span>Secure payment</span>
+                      </div>
+                      <div className="checkout-trust__badge">
+                        <span className="checkout-trust__icon">🚚</span>
+                        <span>Free delivery</span>
+                      </div>
+                      <div className="checkout-trust__badge">
+                        <span className="checkout-trust__icon">✦</span>
+                        <span>Handcrafted</span>
+                      </div>
                     </div>
                   </div>
-                  <form className="order-form" onSubmit={placeOrder}>
-                    <label>
-                      Name
-                      <input
-                        required
-                        value={checkout.name}
-                        onChange={(e) =>
-                          setCheckout((v) => ({ ...v, name: e.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Phone
-                      <input
-                        required
-                        value={checkout.phone}
-                        onChange={(e) =>
-                          setCheckout((v) => ({ ...v, phone: e.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Email
-                      <input
-                        required
-                        type="email"
-                        value={checkout.email}
-                        onChange={(e) =>
-                          setCheckout((v) => ({ ...v, email: e.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Address
-                      <input
-                        required
-                        value={checkout.address}
-                        onChange={(e) =>
-                          setCheckout((v) => ({
-                            ...v,
-                            address: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <div className="form-two">
-                      <label>
-                        City
-                        <input
-                          required
-                          value={checkout.city}
-                          onChange={(e) =>
-                            setCheckout((v) => ({ ...v, city: e.target.value }))
-                          }
-                        />
-                      </label>
-                      <label>
-                        PIN
-                        <input
-                          required
-                          pattern="[0-9]{6}"
-                          value={checkout.pincode}
-                          onChange={(e) =>
-                            setCheckout((v) => ({
-                              ...v,
-                              pincode: e.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                    </div>
-                    <label>
-                      Payment
-                      <select
-                        value={checkout.payment}
-                        onChange={(e) =>
-                          setCheckout((v) => ({
-                            ...v,
-                            payment: e.target.value,
-                          }))
-                        }
+
+                  {/* ── RIGHT PANEL ─ Form ── */}
+                  <div className="checkout-panel checkout-panel--right">
+                    <form className="checkout-form" onSubmit={placeOrder}>
+
+                      <div className="checkout-section">
+                        <p className="checkout-section__title">Contact</p>
+                        <div className="checkout-fields">
+                          <div className="checkout-field">
+                            <label htmlFor="co-name">Full name</label>
+                            <input
+                              id="co-name"
+                              required
+                              placeholder="Your name"
+                              value={checkout.name}
+                              onChange={(e) =>
+                                setCheckout((v) => ({ ...v, name: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <div className="checkout-field checkout-field--half">
+                            <label htmlFor="co-phone">Phone</label>
+                            <input
+                              id="co-phone"
+                              required
+                              placeholder="+91 98765 43210"
+                              value={checkout.phone}
+                              onChange={(e) =>
+                                setCheckout((v) => ({ ...v, phone: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <div className="checkout-field checkout-field--half">
+                            <label htmlFor="co-email">Email</label>
+                            <input
+                              id="co-email"
+                              required
+                              type="email"
+                              placeholder="you@example.com"
+                              value={checkout.email}
+                              onChange={(e) =>
+                                setCheckout((v) => ({ ...v, email: e.target.value }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="checkout-section">
+                        <p className="checkout-section__title">Delivery address</p>
+                        <div className="checkout-fields">
+                          <div className="checkout-field">
+                            <label htmlFor="co-address">Street address</label>
+                            <input
+                              id="co-address"
+                              required
+                              placeholder="House / flat, street, area"
+                              value={checkout.address}
+                              onChange={(e) =>
+                                setCheckout((v) => ({
+                                  ...v,
+                                  address: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="checkout-field checkout-field--half">
+                            <label htmlFor="co-city">City</label>
+                            <input
+                              id="co-city"
+                              required
+                              placeholder="Mumbai"
+                              value={checkout.city}
+                              onChange={(e) =>
+                                setCheckout((v) => ({ ...v, city: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <div className="checkout-field checkout-field--half">
+                            <label htmlFor="co-pin">PIN code</label>
+                            <input
+                              id="co-pin"
+                              required
+                              pattern="[0-9]{6}"
+                              placeholder="400001"
+                              value={checkout.pincode}
+                              onChange={(e) =>
+                                setCheckout((v) => ({
+                                  ...v,
+                                  pincode: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="checkout-section">
+                        <p className="checkout-section__title">Payment method</p>
+                        <div className="checkout-payment-opts">
+                          {[
+                            { value: "Cash on delivery", icon: "💵", label: "Cash on Delivery" },
+                            { value: "Razorpay", icon: "🔒", label: "Pay online with Razorpay" },
+                          ].map((opt) => (
+                            <label
+                              key={opt.value}
+                              className={
+                                "checkout-payment-opt" +
+                                (checkout.payment === opt.value ? " is-selected" : "")
+                              }
+                            >
+                              <input
+                                type="radio"
+                                name="payment"
+                                value={opt.value}
+                                checked={checkout.payment === opt.value}
+                                onChange={(e) =>
+                                  setCheckout((v) => ({ ...v, payment: e.target.value }))
+                                }
+                              />
+                              <span className="checkout-payment-opt__icon">{opt.icon}</span>
+                              <span className="checkout-payment-opt__label">{opt.label}</span>
+                              <span className="checkout-payment-opt__check">✓</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {checkoutError && (
+                        <p className="checkout-error" role="alert">
+                          {checkoutError}
+                        </p>
+                      )}
+                      <button
+                        className="checkout-submit"
+                        type="submit"
+                        disabled={checkoutBusy}
                       >
-                        <option>Cash on delivery</option>
-                        <option>UPI (demo)</option>
-                        <option>Card (demo)</option>
-                      </select>
-                    </label>
-                    <button className="hero-action">
-                      Place demo order · {money(cartTotal)} ↗
-                    </button>
-                  </form>
+                        <span>
+                          {checkoutBusy
+                            ? "Processing…"
+                            : checkout.payment === "Razorpay"
+                              ? "Pay securely"
+                              : "Place order"}
+                        </span>
+                        <span className="checkout-submit__amount">{money(cartTotal)}</span>
+                        <span className="checkout-submit__arrow">↗</span>
+                      </button>
+                      <p className="checkout-disclaimer">
+                        Online payments are processed securely by Razorpay. Cash on delivery is payable to the courier.
+                      </p>
+                    </form>
+                  </div>
                 </div>
               </>
             )}
@@ -2584,14 +3279,14 @@ export default function App() {
                   Your order is <em>saved.</em>
                 </h2>
                 <p>
-                  Order ID: <strong>{placedOrder.id}</strong>. This browser
-                  stores the demo order so the tracking UI can be tested.
+                  Order ID: <strong>{placedOrder.id}</strong>. Your order is
+                  saved to your account and shared with the relevant maker.
                 </p>
                 <div className="custom-order-success">
                   <span>Total</span>
                   <strong>{money(placedOrder.total)}</strong>
                   <span>Current stage</span>
-                  <strong>Crafting with the maker</strong>
+                  <strong>{placedOrder.status}</strong>
                 </div>
                 <button
                   className="hero-action"

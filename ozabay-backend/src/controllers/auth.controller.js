@@ -6,9 +6,134 @@ import Session from "../models/session.model.js";
 import sendEmail from "../services/email.service.js";
 import { generateOTP, otpHtmlTemplate } from "../utils/otp.utils.js";
 import OTP from "../models/otp.model.js";
-import crypto from "node:crypto";
+import crypto, {
+  createPublicKey,
+  verify as verifySignature,
+} from "node:crypto";
 import dotenv from "dotenv";
 dotenv.config();
+
+const googleKeysUrl = "https://www.googleapis.com/oauth2/v3/certs";
+let googlePublicKeys;
+let googlePublicKeysExpireAt = 0;
+
+class GoogleKeyFetchError extends Error {}
+
+const getGooglePublicKeys = async (refresh = false) => {
+  if (!refresh && googlePublicKeys && Date.now() < googlePublicKeysExpireAt) {
+    return googlePublicKeys;
+  }
+
+  let response;
+  try {
+    response = await fetch(googleKeysUrl, { signal: AbortSignal.timeout(5000) });
+  } catch (error) {
+    throw new GoogleKeyFetchError("Unable to retrieve Google signing keys", { cause: error });
+  }
+  if (!response.ok) {
+    throw new GoogleKeyFetchError(
+      `Unable to retrieve Google signing keys (${response.status})`,
+    );
+  }
+
+  const keySet = await response.json();
+  if (!Array.isArray(keySet.keys)) {
+    throw new GoogleKeyFetchError("Google returned an invalid signing key set");
+  }
+  const maxAge = response.headers.get("cache-control")?.match(/max-age=(\d+)/i)?.[1];
+  googlePublicKeys = new Map(keySet.keys.map((key) => [key.kid, key]));
+  googlePublicKeysExpireAt = Date.now() + (Number(maxAge) || 300) * 1000;
+  return googlePublicKeys;
+};
+
+const verifyGoogleCredential = async (credential) => {
+  const [headerPart, payloadPart, signaturePart, extraPart] = credential.split(".");
+  if (!headerPart || !payloadPart || !signaturePart || extraPart !== undefined) {
+    throw new Error("Malformed Google ID token");
+  }
+
+  const header = JSON.parse(Buffer.from(headerPart, "base64url").toString("utf8"));
+  const payload = JSON.parse(Buffer.from(payloadPart, "base64url").toString("utf8"));
+  if (header.alg !== "RS256" || typeof header.kid !== "string") {
+    throw new Error("Unsupported Google ID token signature");
+  }
+
+  let keys = await getGooglePublicKeys();
+  if (!keys.has(header.kid)) {
+    keys = await getGooglePublicKeys(true);
+  }
+  const jwk = keys.get(header.kid);
+  if (!jwk) {
+    throw new Error("Unknown Google ID token signing key");
+  }
+
+  const verified = verifySignature(
+    "RSA-SHA256",
+    Buffer.from(`${headerPart}.${payloadPart}`),
+    createPublicKey({ key: jwk, format: "jwk" }),
+    Buffer.from(signaturePart, "base64url"),
+  );
+  const now = Math.floor(Date.now() / 1000);
+  const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (
+    !verified
+    || !audience.includes(config.GOOGLE_CLIENT_ID)
+    || (payload.azp && payload.azp !== config.GOOGLE_CLIENT_ID)
+    || !["accounts.google.com", "https://accounts.google.com"].includes(payload.iss)
+    || !Number.isFinite(payload.exp)
+    || payload.exp <= now
+    || !Number.isFinite(payload.iat)
+    || payload.iat > now + 60
+  ) {
+    throw new Error("Invalid or expired Google ID token");
+  }
+  return payload;
+};
+
+const createAuthenticatedSession = async (user, req, res) => {
+  const refreshToken = jwt.sign(
+    { userId: user._id },
+    config.JWT_REFRESH_SECRET,
+    { expiresIn: "7d" },
+  );
+  const refreshTokenHash = crypto
+    .createHash("sha256")
+    .update(refreshToken)
+    .digest("hex");
+  const session = new Session({
+    userId: user._id,
+    refreshTokenHash,
+    ipAddress: req.ip,
+    userAgent: req.headers["user-agent"],
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+  await session.save();
+
+  const accessToken = jwt.sign(
+    { userId: user._id, sessionId: session._id },
+    config.JWT_SECRET,
+    { expiresIn: "1h" },
+  );
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  return {
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      accountType: user.accountType,
+      deliveryLocation: user.deliveryLocation,
+      deliveryLocations: user.deliveryLocations,
+      shopLocations: user.shopLocations || [],
+    },
+    accessToken,
+  };
+};
 
 const register = async (req, res) => {
   const { name, password, accountType = "user" } = req.body;
@@ -81,65 +206,93 @@ const login = async (req, res) => {
       return res.status(403).json({ message: "Email is not verified" });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordValid = user.password
+      ? await bcrypt.compare(password, user.password)
+      : false;
     if (!isPasswordValid) {
       return res.status(400).json({ message: "Invalid email or password" });
     }
+    if (user.isBlocked) {
+      return res.status(403).json({ message: "This account has been blocked" });
+    }
 
-    const refreshToken = jwt.sign(
-      { userId: user._id },
-      config.JWT_REFRESH_SECRET,
-      {
-        expiresIn: "7d",
-      },
-    );
-
-    const refreshTokenHash = crypto
-      .createHash("sha256")
-      .update(refreshToken)
-      .digest("hex");
-
-    const session = new Session({
-      userId: user._id,
-      refreshTokenHash,
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"],
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
-
-    await session.save();
-
-    const accessToken = jwt.sign(
-      { userId: user._id, sessionId: session._id },
-      config.JWT_SECRET,
-      {
-        expiresIn: "1h",
-      },
-    );
-
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // Set to true in production
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
+    const session = await createAuthenticatedSession(user, req, res);
     return res.status(200).json({
       message: "User Logged in successful",
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        accountType: user.accountType,
-        deliveryLocation: user.deliveryLocation,
-        deliveryLocations: user.deliveryLocations,
-      },
-      accessToken,
+      ...session,
     });
   } catch (error) {
     console.error("Error logging in:", error);
     return res.status(500).json({ message: "Server error" });
   }
+};
+
+const googleLogin = async (req, res) => {
+  let payload;
+  try {
+    payload = await verifyGoogleCredential(req.body.credential);
+  } catch (error) {
+    if (error instanceof GoogleKeyFetchError) {
+      console.error("Google sign-in verification service is unavailable:", error);
+      return res.status(503).json({
+        message: "Google sign-in is temporarily unavailable. Please try again.",
+      });
+    }
+    console.warn("Google ID token verification failed:", error.message);
+    return res.status(401).json({ message: "Google sign-in failed. Please try again." });
+  }
+
+  if (
+    typeof payload?.email !== "string"
+    || payload.email_verified !== true
+  ) {
+    return res.status(401).json({
+      message: "Google must provide a verified email address to sign in.",
+    });
+  }
+
+  try {
+    const email = payload.email.trim().toLowerCase();
+    let user = await userModel.findOne({ email });
+    if (!user) {
+      try {
+        user = await userModel.create({
+          name: (typeof payload.name === "string" && payload.name.trim())
+            || email.split("@")[0],
+          email,
+          accountType: "user",
+          verified: true,
+        });
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+        user = await userModel.findOne({ email });
+      }
+    }
+
+    if (!user) {
+      throw new Error("Unable to find or create the Google account");
+    }
+    if (user.isBlocked) {
+      return res.status(403).json({ message: "This account has been blocked" });
+    }
+    if (!user.verified) {
+      user.verified = true;
+      await user.save();
+    }
+
+    const session = await createAuthenticatedSession(user, req, res);
+    return res.status(200).json({
+      message: "Google sign-in successful",
+      ...session,
+    });
+  } catch (error) {
+    console.error("Error signing in with Google:", error);
+    return res.status(500).json({ message: "Unable to complete Google sign-in" });
+  }
+};
+
+const getGoogleClientId = (req, res) => {
+  return res.status(200).json({ clientId: config.GOOGLE_CLIENT_ID });
 };
 
 const getMe = async (req, res) => {
@@ -513,28 +666,25 @@ const updateProfile = async (req, res) => {
       name,
       email,
       currentPassword,
-      password,
       deliveryLocation,
       deliveryLocations,
       activeLocationIndex,
     } = req.body;
 
     const emailChanged = email !== undefined && email.trim().toLowerCase() !== user.email;
-    if ((password || emailChanged) && !currentPassword) {
+    if (emailChanged && !currentPassword) {
       return res.status(400).json({
-        message: "Enter your current password to update your email or password",
+        message: "Enter your current password to update your email address",
       });
     }
 
-    if (password || emailChanged) {
-      const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (emailChanged) {
+      const isPasswordValid = user.password
+        ? await bcrypt.compare(currentPassword, user.password)
+        : false;
       if (!isPasswordValid) {
         return res.status(400).json({ message: "Your current password is incorrect" });
       }
-    }
-
-    if (password) {
-      user.password = await bcrypt.hash(password, 10);
     }
 
     if (name !== undefined) user.name = name;
@@ -562,6 +712,7 @@ const updateProfile = async (req, res) => {
         accountType: user.accountType,
         deliveryLocation: user.deliveryLocation,
         deliveryLocations: user.deliveryLocations,
+        shopLocations: user.shopLocations || [],
       },
     });
   } catch (error) {
@@ -573,9 +724,148 @@ const updateProfile = async (req, res) => {
   }
 };
 
+const requestPasswordChange = async (req, res) => {
+  try {
+    const user = await userModel.findById(req.authUserId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isPasswordValid = user.password
+      ? await bcrypt.compare(req.body.password, user.password)
+      : false;
+    if (!isPasswordValid) {
+      return res.status(400).json({ message: "Your current password is incorrect" });
+    }
+
+    const recentRequest = await OTP.findOne({
+      userId: user._id,
+      purpose: "password_change",
+      createdAt: { $gt: new Date(Date.now() - 60 * 1000) },
+    });
+    if (recentRequest) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((recentRequest.createdAt.getTime() + 60 * 1000 - Date.now()) / 1000),
+      );
+      return res.status(429).json({
+        message: `A verification code was sent recently. Check your inbox or request another in ${retryAfterSeconds} seconds.`,
+        retryAfterSeconds,
+      });
+    }
+
+    await OTP.deleteMany({ userId: user._id, purpose: "password_change" });
+
+    const otp = generateOTP();
+    const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+    const otpRecord = await OTP.create({
+      userId: user._id,
+      email: user.email,
+      otpHash,
+      purpose: "password_change",
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    try {
+      await sendEmail(
+        user.email,
+        "Confirm your OzaBay password change",
+        `Your password change code is: ${otp}. It will expire in 10 minutes.`,
+        otpHtmlTemplate(otp, "password change"),
+      );
+    } catch (error) {
+      try {
+        await OTP.deleteOne({ _id: otpRecord._id });
+      } catch (cleanupError) {
+        console.error("Unable to remove an unsent password change code:", cleanupError);
+      }
+      throw error;
+    }
+
+    return res.status(200).json({
+      message: "We sent a verification code to your registered email address.",
+      email: user.email,
+    });
+  } catch (error) {
+    console.error("Error requesting password change:", error);
+    if (error.message === "Failed to send email") {
+      return res.status(502).json({
+        message: "Unable to send the verification code right now. Please try again shortly.",
+      });
+    }
+    return res.status(500).json({ message: "Unable to start password change verification" });
+  }
+};
+
+const confirmPasswordChange = async (req, res) => {
+  const submittedHash = crypto.createHash("sha256").update(req.body.otp).digest("hex");
+
+  try {
+    const otpRecord = await OTP.findOne({
+      userId: req.authUserId,
+      purpose: "password_change",
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord || otpRecord.expiresAt < new Date() || otpRecord.attempts >= 5) {
+      return res.status(400).json({ message: "The verification code is invalid or expired. Request a new one." });
+    }
+
+    const expected = Buffer.from(otpRecord.otpHash, "hex");
+    const submitted = Buffer.from(submittedHash, "hex");
+    if (
+      expected.length !== submitted.length
+      || !crypto.timingSafeEqual(expected, submitted)
+    ) {
+      await OTP.updateOne(
+        {
+          _id: otpRecord._id,
+          attempts: { $lt: 5 },
+          expiresAt: { $gt: new Date() },
+        },
+        { $inc: { attempts: 1 } },
+      );
+      return res.status(400).json({ message: "The verification code is invalid or expired. Request a new one." });
+    }
+
+    const claimedOTP = await OTP.findOneAndDelete({
+      _id: otpRecord._id,
+      otpHash: submittedHash,
+      expiresAt: { $gt: new Date() },
+      attempts: { $lt: 5 },
+    });
+    if (!claimedOTP) {
+      return res.status(400).json({ message: "The verification code is invalid or expired. Request a new one." });
+    }
+
+    const user = await userModel.findById(req.authUserId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.password = await bcrypt.hash(req.body.password, 10);
+    await user.save();
+    await Promise.all([
+      OTP.deleteMany({ userId: user._id, purpose: "password_change" }),
+      Session.updateMany(
+        { userId: user._id, revoked: false, _id: { $ne: req.authSessionId } },
+        { $set: { revoked: true } },
+      ),
+    ]);
+
+    return res.status(200).json({
+      message: "Password changed successfully. Your other sessions were signed out.",
+    });
+  } catch (error) {
+    console.error("Error confirming password change:", error);
+    return res.status(500).json({ message: "Unable to change your password" });
+  }
+};
+
 export {
   register,
   login,
+  googleLogin,
+  getGoogleClientId,
   getMe,
   refreshToken,
   logOut,
@@ -583,5 +873,7 @@ export {
   verifyEmail,
   requestPasswordReset,
   resetPassword,
+  requestPasswordChange,
+  confirmPasswordChange,
   updateProfile,
 };

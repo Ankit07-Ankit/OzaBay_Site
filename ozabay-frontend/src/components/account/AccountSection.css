@@ -190,6 +190,10 @@
 .account-section__order-head>div p{margin:2px 0 0;color:#7c849c;font-size:12px}
 .account-section__order-status{font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;border-radius:20px;font-weight:600;white-space:nowrap}
 .account-section__order-status--crafting{background:#fff7ec;color:#b45f06}
+.account-section__order-status--received{background:#eef7ee;color:#2e7d32}
+.account-section__order-status--in-progress{background:#fff7ec;color:#b45f06}
+.account-section__order-status--awaiting-payment{background:#fff7ec;color:#b45f06}
+.account-section__order-status--payment-failed{background:#fdeeee;color:#c62828}
 .account-section__order-status--shipped{background:#eef6ff;color:#1565c0}
 .account-section__order-status--delivered{background:#eef7ee;color:#2e7d32}
 .account-section__order-status--cancelled{background:#fdeeee;color:#c62828}
@@ -202,6 +206,38 @@
 .account-section__order-total strong{font-family:var(--serif);font-size:18px;color:var(--deep)}
 .account-section__order-customer{margin-top:14px;padding-top:14px;border-top:1px solid var(--acc-line);font-size:12px;color:#7c849c}
 .account-section__order-customer span{display:block;margin:2px 0}
+.account-section__order-item-status{display:block;margin-top:3px;color:#8a94a2;font-size:10px}
+.account-section__cod-status{color:#936c24}
+.account-section__cod-status.is-paid{color:#39744c}
+.account-section__refund-note{color:#936c24!important}
+.account-section__order-message{margin:0;padding:12px 14px;border-radius:10px;background:#fff7ec;color:#936c24;font-size:13px;line-height:1.5}
+.account-section__order-message--error{background:#fdeeee;color:#a33232}
+.account-section__order-actions{display:flex;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--acc-line)}
+.account-section__order-actions{gap:9px}
+.account-section__track-order,.account-section__cancel-order{min-height:36px;padding:0 14px;border:1px solid #dfe4eb;border-radius:8px;background:#fff;color:var(--deep);font:600 11px var(--sans);cursor:pointer}
+.account-section__track-order:hover{background:#f4f7fb;border-color:#aab8ca}
+.account-section__cancel-order{min-height:36px;padding:0 14px;border:1px solid #e6c6c2;border-radius:8px;background:#fff;color:#a3443c;font:600 11px var(--sans);cursor:pointer}
+.account-section__cancel-order:hover:not(:disabled){background:#fff3f1;border-color:#c77a71}
+.account-section__cancel-order:disabled{opacity:.6;cursor:wait}
+.account-section__order-item{flex-wrap:wrap}
+.account-section__return-button{min-height:30px;margin-top:3px;padding:0 10px;border:1px solid #d5e6da;border-radius:7px;background:#f4faf5;color:#39744c;font:600 10px var(--sans);cursor:pointer}
+.account-section__return-button:hover:not(:disabled){background:#e8f4ec}
+.account-section__return-button:disabled{opacity:.6;cursor:wait}
+.account-section__return-status,.account-section__return-expired{display:block;margin-top:4px;font-size:10px;font-weight:600}
+.account-section__return-status--requested{color:#936c24}
+.account-section__return-status--approved{color:#39744c}
+.account-section__return-status--rejected,.account-section__return-expired{color:#8a94a2}
+.account-section__order-tracking{margin-top:14px;padding:16px;border:1px solid var(--acc-line);border-radius:12px;background:#fbfcfe}
+.account-section__order-tracking>p{margin:0 0 14px;color:#66748a;font-size:12px;line-height:1.6}
+.account-section__tracking-item+.account-section__tracking-item{margin-top:16px;padding-top:14px;border-top:1px solid var(--acc-line)}
+.account-section__tracking-item>strong{display:block;color:var(--deep);font-size:12px}
+.account-section__tracking-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:12px 0 0;padding:0;list-style:none}
+.account-section__tracking-steps li{display:grid;justify-items:center;gap:6px;color:#8993a0;font-size:9px;text-align:center}
+.account-section__tracking-steps li>span{width:9px;height:9px;border:2px solid #cbd2dc;border-radius:50%;background:#fff}
+.account-section__tracking-steps li.is-complete{color:#3c7950}
+.account-section__tracking-steps li.is-complete>span{border-color:#5a9a69;background:#5a9a69}
+.account-section__tracking-special{display:inline-block;margin-top:8px;color:#936c24;font-size:11px;font-weight:600}
+.account-section__tracking-updated{display:block;margin-top:14px;color:#8993a0;font-size:10px}
 
 /* ——— responsive ——— */
 @media(max-width:640px){

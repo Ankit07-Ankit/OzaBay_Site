@@ -1,5 +1,7 @@
 import dotenv from "dotenv";
-dotenv.config();
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: fileURLToPath(new URL("../../.env", import.meta.url)) });
 
 if (!process.env.MONGO_URI) {
   throw new Error("MONGO_URI is not defined in the environment variables");
@@ -39,6 +41,8 @@ const config = {
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   GOOGLE_REFRESH_TOKEN: process.env.GOOGLE_REFRESH_TOKEN,
   GOOGLE_USER: process.env.GOOGLE_USER,
+  ADMIN_EMAIL: process.env.ADMIN_EMAIL?.trim().toLowerCase() || "",
+  ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH || "",
 };
 
 export default config;

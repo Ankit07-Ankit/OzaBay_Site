@@ -58,6 +58,31 @@ const resetPasswordValidation = (req, res, next) => {
   next();
 };
 
+const requestPasswordChangeValidation = (req, res, next) => {
+  const schema = joi.object({
+    password: joi.string().min(6).required(),
+  });
+
+  const { error } = schema.validate(req.body);
+  if (error) {
+    return res.status(400).json({ message: error.details[0].message });
+  }
+  next();
+};
+
+const confirmPasswordChangeValidation = (req, res, next) => {
+  const schema = joi.object({
+    otp: joi.string().length(6).pattern(/^[0-9]+$/).required(),
+    password: joi.string().min(6).required(),
+  });
+
+  const { error } = schema.validate(req.body);
+  if (error) {
+    return res.status(400).json({ message: error.details[0].message });
+  }
+  next();
+};
+
 const productReviewParamsValidation = (req, res, next) => {
   const schema = joi.object({
     productId: joi.string().pattern(/^[a-zA-Z0-9_-]{1,160}$/).required(),
@@ -112,6 +137,17 @@ const loginValidation = (req, res, next) => {
   next();
 };
 
+const googleAuthValidation = (req, res, next) => {
+  const schema = joi.object({
+    credential: joi.string().max(8192).required(),
+  });
+  const { error } = schema.validate(req.body);
+  if (error) {
+    return res.status(400).json({ message: "A valid Google credential is required" });
+  }
+  next();
+};
+
 const deliveryLocationSchema = joi.object({
   _id: joi.string().hex().length(24),
   building: joi.string().trim().min(1).max(100).required(),
@@ -150,8 +186,10 @@ const profileValidation = (req, res, next) => {
   ) {
     return res.status(400).json({ message: "Select a default delivery location" });
   }
-  if (req.body.password && !req.body.currentPassword) {
-    return res.status(400).json({ message: "Enter your current password to set a new password" });
+  if (req.body.password !== undefined) {
+    return res.status(400).json({
+      message: "To change your password, verify your email first from the account security section.",
+    });
   }
   if (
     req.body.activeLocationIndex !== undefined
@@ -217,9 +255,12 @@ const userProductListValidation = (req, res, next) => {
 export {
   registerValidation,
   loginValidation,
+  googleAuthValidation,
   verifyEmailValidation,
   requestPasswordResetValidation,
   resetPasswordValidation,
+  requestPasswordChangeValidation,
+  confirmPasswordChangeValidation,
   productReviewParamsValidation,
   productReviewSummaryValidation,
   productReviewValidation,

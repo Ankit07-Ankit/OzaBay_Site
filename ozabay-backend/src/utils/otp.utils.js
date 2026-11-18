@@ -4,10 +4,17 @@ const generateOTP = () => randomInt(100000, 1000000).toString();
 
 const otpHtmlTemplate = (otp, purpose = "verification") => {
   const isPasswordReset = purpose === "password reset";
-  const title = isPasswordReset ? "Reset your password" : "Verify your email";
-  const description = isPasswordReset
-    ? "Use the code below to reset your OzaBay password."
-    : "Use the code below to verify your email address and continue to OzaBay.";
+  const isPasswordChange = purpose === "password change";
+  const title = isPasswordChange
+    ? "Confirm your password change"
+    : isPasswordReset
+      ? "Reset your password"
+      : "Verify your email";
+  const description = isPasswordChange
+    ? "Use the code below to confirm changing your OzaBay password."
+    : isPasswordReset
+      ? "Use the code below to reset your OzaBay password."
+      : "Use the code below to verify your email address and continue to OzaBay.";
   return `
     <!doctype html>
     <html lang="en">

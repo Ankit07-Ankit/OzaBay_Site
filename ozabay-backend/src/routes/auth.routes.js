@@ -2,14 +2,19 @@ import { Router } from "express";
 import {
   registerValidation,
   loginValidation,
+  googleAuthValidation,
   verifyEmailValidation,
   profileValidation,
   requestPasswordResetValidation,
   resetPasswordValidation,
+  requestPasswordChangeValidation,
+  confirmPasswordChangeValidation,
 } from "../middleware/auth.validation.js";
 import requireAuth from "../middleware/auth.middleware.js";
 import {
   login,
+  googleLogin,
+  getGoogleClientId,
   register,
   getMe,
   refreshToken,
@@ -19,6 +24,8 @@ import {
   updateProfile,
   requestPasswordReset,
   resetPassword,
+  requestPasswordChange,
+  confirmPasswordChange,
 } from "../controllers/auth.controller.js";
 
 const authRouter = Router();
@@ -31,6 +38,8 @@ const authRouter = Router();
  */
 
 authRouter.post("/login", loginValidation, login);
+authRouter.get("/google/client-id", getGoogleClientId);
+authRouter.post("/google", googleAuthValidation, googleLogin);
 
 /**
  * Post /api/auth/register
@@ -44,7 +53,7 @@ authRouter.post("/register", registerValidation, register);
  * @desc Get current user's profile
  * @access Private
  */
-authRouter.get("/me", getMe);
+authRouter.get("/me", requireAuth, getMe);
 
 /**
  * Get /api/auth/refresh-token
@@ -76,6 +85,18 @@ authRouter.post("/verify-email", verifyEmailValidation, verifyEmail);
 
 authRouter.post("/forgot-password", requestPasswordResetValidation, requestPasswordReset);
 authRouter.post("/reset-password", resetPasswordValidation, resetPassword);
+authRouter.post(
+  "/change-password/request",
+  requireAuth,
+  requestPasswordChangeValidation,
+  requestPasswordChange,
+);
+authRouter.post(
+  "/change-password/confirm",
+  requireAuth,
+  confirmPasswordChangeValidation,
+  confirmPasswordChange,
+);
 
 /**
  * Patch /api/auth/profile

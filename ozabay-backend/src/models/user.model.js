@@ -19,6 +19,23 @@ const deliveryLocationSchema = new mongoose.Schema(
   { _id: true },
 );
 
+const shopLocationSchema = new mongoose.Schema(
+  {
+    name: { type: String, trim: true, required: true },
+    type: { type: String, trim: true, default: "Studio / Workshop" },
+    categories: { type: [String], default: [] },
+    address: { type: String, trim: true },
+    city: { type: String, trim: true },
+    state: { type: String, trim: true },
+    pincode: { type: String, trim: true },
+    phone: { type: String, trim: true },
+    timing: { type: String, trim: true },
+    mapLink: { type: String, trim: true },
+    isPrimary: { type: Boolean, default: false },
+  },
+  { _id: true, timestamps: true },
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -35,7 +52,6 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
     },
     accountType: {
       type: String,
@@ -44,9 +60,20 @@ const userSchema = new mongoose.Schema(
     },
     deliveryLocation: deliveryLocationSchema,
     deliveryLocations: { type: [deliveryLocationSchema], default: [] },
+    shopLocations: { type: [shopLocationSchema], default: [] },
     verified: {
       type: Boolean,
       default: false,
+    },
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
+    moderationNote: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: "",
     },
   },
   { timestamps: true },

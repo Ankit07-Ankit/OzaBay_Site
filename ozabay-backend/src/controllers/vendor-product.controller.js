@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import Joi from "joi";
+import User from "../models/user.model.js";
 import VendorProduct from "../models/vendor-product.model.js";
 import UserProduct from "../models/user-product.model.js";
 import {
@@ -63,19 +64,32 @@ const verifyMediaSignatures = async (files) => {
 
 const parseRetainedImages = (value) => {
   if (value === undefined) return undefined;
+  const raw = Array.isArray(value) ? value.find((item) => typeof item === "string" && item.trim().startsWith("[")) ?? value[0] : value;
+  if (raw === undefined || raw === null || raw === "") return undefined;
   try {
-    const images = JSON.parse(value);
-    return Array.isArray(images) && images.every((image) => typeof image === "string")
-      ? images
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) && parsed.every((image) => typeof image === "string")
+      ? parsed
       : null;
   } catch {
     return null;
   }
 };
 
-const getRetainedVideo = (value) => {
+const parseRetainedVideo = (value) => {
   if (value === undefined) return undefined;
-  return typeof value === "string" ? value : null;
+  const raw = Array.isArray(value) ? value.find((item) => typeof item === "string") ?? value[0] : value;
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed === null) return "";
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    return trimmed;
+  }
 };
 
 const isProductMediaPath = (value) => (
@@ -112,7 +126,13 @@ const listProducts = async (req, res, next) => {
 
 const listStorefrontProducts = async (req, res, next) => {
   try {
-    const products = await VendorProduct.find()
+    const activeVendors = await User.find({
+      accountType: "vendor",
+      isBlocked: { $ne: true },
+    }).select("_id");
+    const products = await VendorProduct.find({
+      vendorId: { $in: activeVendors.map((vendor) => vendor._id) },
+    })
       .select("name description category price discountPercent offer images video vendorId createdAt")
       .populate("vendorId", "name")
       .sort({ createdAt: -1 });
@@ -175,8 +195,8 @@ const updateProduct = async (req, res, next) => {
     }
 
     const { error, value } = getValidatedProductFields(body);
-    const retainedImages = parseRetainedImages(body.images);
-    const retainedVideo = getRetainedVideo(body.video);
+    const retainedImages = parseRetainedImages(body.retainedImages ?? body.images);
+    const retainedVideo = parseRetainedVideo(body.retainedVideo ?? body.video);
     const uploadedImages = (req.files?.images || [])
       .filter((file) => file.mimetype.startsWith("image/"));
     const uploadedVideo = (req.files?.video || [])[0];
@@ -187,16 +207,16 @@ const updateProduct = async (req, res, next) => {
     }
     if (
       retainedImages === null
-      || (retainedImages && retainedImages.some((image) => !product.images.includes(image)))
+      || (Array.isArray(retainedImages) && retainedImages.some((image) => !product.images.includes(image)))
       || retainedVideo === null
-      || (retainedVideo && retainedVideo !== product.video)
+      || (typeof retainedVideo === "string" && retainedVideo !== "" && retainedVideo !== product.video)
     ) {
       await removeFiles(files);
       return res.status(400).json({ message: "Product media can only be retained from this product" });
     }
 
     const images = [
-      ...(retainedImages ?? product.images),
+      ...(Array.isArray(retainedImages) ? retainedImages : product.images),
       ...uploadedImages.map(getVendorProductMediaPath),
     ];
     if (images.length === 0 || images.length > 5) {
@@ -211,7 +231,9 @@ const updateProduct = async (req, res, next) => {
     const previousMedia = [...product.images, ...(product.video ? [product.video] : [])];
     const nextVideo = uploadedVideo
       ? getVendorProductMediaPath(uploadedVideo)
-      : retainedVideo ?? product.video;
+      : typeof retainedVideo === "string"
+        ? retainedVideo
+        : product.video;
 
     Object.assign(product, value, { images, video: nextVideo });
     await product.save();
@@ -235,12 +257,27 @@ const deleteProduct = async (req, res, next) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    await UserProduct.deleteMany({ productId: `vendor-${product._id}` });
-    await removeFiles(filesForMedia([...product.images, ...(product.video ? [product.video] : [])]));
+    await cleanupVendorProduct(product);
     return res.status(200).json({ message: "Product deleted successfully" });
   } catch (error) {
     return next(error);
   }
+};
+
+const cleanupVendorProduct = async (product) => {
+  await UserProduct.deleteMany({ productId: `vendor-${product._id}` });
+  await removeFiles(filesForMedia([
+    ...product.images,
+    ...(product.video ? [product.video] : []),
+  ]));
+};
+
+const removeVendorProduct = async (productId) => {
+  const product = await VendorProduct.findByIdAndDelete(productId);
+  if (product) {
+    await cleanupVendorProduct(product);
+  }
+  return product;
 };
 
 export {
@@ -248,5 +285,6 @@ export {
   deleteProduct,
   listProducts,
   listStorefrontProducts,
+  removeVendorProduct,
   updateProduct,
 };
