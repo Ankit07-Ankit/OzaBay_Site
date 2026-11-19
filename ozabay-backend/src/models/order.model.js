@@ -19,7 +19,7 @@ const orderItemSchema = new mongoose.Schema(
     lineTotal: { type: Number, required: true, min: 0 },
     fulfillmentStatus: {
       type: String,
-      enum: ["Received", "Crafting", "Shipped", "Delivered", "Cancelled"],
+      enum: ["Received", "Crafting", "Shipped", "Out for delivery", "Delivered", "Cancelled"],
       default: "Received",
     },
     deliveredAt: { type: Date, default: null },
@@ -104,7 +104,7 @@ const orderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ["Awaiting payment", "Received", "Crafting", "Shipped", "Delivered", "Cancelled", "Payment failed"],
+      enum: ["Awaiting payment", "Received", "Crafting", "Shipped", "Out for delivery", "Delivered", "Cancelled", "Payment failed"],
       required: true,
     },
     razorpayOrderId: { type: String, default: "" },

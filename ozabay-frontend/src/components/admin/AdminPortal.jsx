@@ -107,6 +107,10 @@ function AdminDashboard() {
   const [accounts, setAccounts] = useState([]);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [supportTickets, setSupportTickets] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [reviewReply, setReviewReply] = useState({});
+  const [supportReply, setSupportReply] = useState({});
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
   const [accountType, setAccountType] = useState("all");
   const [productSort, setProductSort] = useState("newest");
@@ -162,8 +166,10 @@ function AdminDashboard() {
         if (!active) return;
         if (tab === "accounts") setAccounts(result.accounts);
         else if (tab === "products") setProducts(result.products);
-        else setOrders(result.orders);
-        setPagination(result.pagination);
+        else if (tab === "orders") setOrders(result.orders);
+        else if (tab === "support") setSupportTickets(result.tickets || []);
+        else if (tab === "reviews") setReviews(result.reviews || []);
+        setPagination(result.pagination || { page: 1, pages: 1, total: (result.tickets || []).length });
       })
       .catch((requestError) => {
         if (active) setError(requestError.message);
@@ -244,6 +250,84 @@ function AdminDashboard() {
     }
   };
 
+  const replySupportTicket = async (ticket) => {
+    const message = (supportReply[ticket._id] || "").trim();
+    if (!message) return;
+    setBusyId(String(ticket._id));
+    setError("");
+    setNotice("");
+    try {
+      const result = await request(`/support/${ticket._id}/replies`, {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      });
+      setSupportTickets((current) =>
+        current.map((item) => item._id === ticket._id ? result.ticket : item),
+      );
+      setSupportReply((current) => ({ ...current, [ticket._id]: "" }));
+      setNotice("Reply sent to the customer.");
+    } catch (actionError) {
+      setError(actionError.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const replyToProductReview = async (review) => {
+    const message = (reviewReply[review._id] || "").trim();
+    if (!message) return;
+    setBusyId(String(review._id));
+    setError("");
+    setNotice("");
+    try {
+      const result = await request(`/reviews/${review._id}/replies`, {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      });
+      setReviews((current) =>
+        current.map((item) => item._id === review._id ? { ...item, ...result.review } : item),
+      );
+      setReviewReply((current) => ({ ...current, [review._id]: "" }));
+      setNotice("Reply sent to the customer.");
+    } catch (actionError) {
+      setError(actionError.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const deleteSupportTicket = async (ticket) => {
+    if (!window.confirm(`Delete the message "${ticket.subject}" permanently?`)) return;
+    setBusyId(String(ticket._id));
+    setError("");
+    setNotice("");
+    try {
+      await request(`/support/${ticket._id}`, { method: "DELETE" });
+      setSupportTickets((current) => current.filter((item) => item._id !== ticket._id));
+      setNotice("Support or feedback message deleted.");
+    } catch (actionError) {
+      setError(actionError.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const deleteProductReview = async (review) => {
+    if (!window.confirm(`Delete the wrong review for "${review.productName}" permanently?`)) return;
+    setBusyId(String(review._id));
+    setError("");
+    setNotice("");
+    try {
+      await request(`/reviews/${review._id}`, { method: "DELETE" });
+      setReviews((current) => current.filter((item) => item._id !== review._id));
+      setNotice("Wrong review or feedback deleted.");
+    } catch (actionError) {
+      setError(actionError.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+
   const signOut = async () => {
     try {
       await request("/logout", { method: "POST" });
@@ -277,6 +361,18 @@ function AdminDashboard() {
         >
           <span aria-hidden="true">◇</span> Product moderation
         </button>
+        <button
+          className={`admin-nav-item ${tab === "support" ? "is-current" : ""}`}
+          onClick={() => { setTab("support"); setPage(1); }}
+        >
+          <span aria-hidden="true">✉</span> Support & feedback
+        </button>
+        <button
+          className={`admin-nav-item ${tab === "reviews" ? "is-current" : ""}`}
+          onClick={() => { setTab("reviews"); setPage(1); }}
+        >
+          <span aria-hidden="true">★</span> Product reviews
+        </button>
         <div className="admin-sidebar-bottom">
           <span>Super admin</span>
           <button onClick={signOut}>Sign out</button>
@@ -292,7 +388,11 @@ function AdminDashboard() {
                 ? "People & access"
                 : tab === "products"
                   ? "Product moderation"
-                  : "Orders & payments"}
+                  : tab === "support"
+                    ? "Support & feedback"
+                    : tab === "reviews"
+                      ? "Product reviews"
+                      : "Orders & payments"}
             </h1>
           </div>
           <a className="admin-store-link" href="/">View store ↗</a>
@@ -318,7 +418,11 @@ function AdminDashboard() {
                     ? "Registered accounts"
                     : tab === "products"
                       ? "Marketplace products"
-                      : "Customer orders"}
+                      : tab === "support"
+                        ? "Customer support"
+                        : tab === "reviews"
+                          ? "Product reviews"
+                          : "Customer orders"}
                 </h2>
                 <p>{tab === "accounts"
                   ? "Review customer and vendor access, or remove accounts that violate store rules."
@@ -469,6 +573,94 @@ function AdminDashboard() {
                     {!products.length && <tr><td className="admin-table-empty" colSpan="5">No products match your search.</td></tr>}
                   </tbody>
                 </table>
+              </div>
+            ) : tab === "reviews" ? (
+              <div className="admin-support-list">
+                {reviews.map((review) => (
+                  <article className="admin-support-card" key={review._id}>
+                    <div className="admin-support-head">
+                      <div>
+                        <strong>{review.productName}</strong>
+                        <small>{review.userName} · {review.vendorName || "OzaBay vendor"} · {formatDate(review.createdAt)} · {review.rating}/5 stars</small>
+                      </div>
+                      <span className="admin-status status-active">{review.rating}/5 ★</span>
+                    </div>
+                    <p className="admin-support-original">{review.feedback}</p>
+                    {review.vendorReply?.message && (
+                      <div className="admin-support-reply"><strong>Vendor reply</strong><p>{review.vendorReply.message}</p></div>
+                    )}
+                    {review.adminReply?.message && (
+                      <div className="admin-support-reply"><strong>Admin reply</strong><p>{review.adminReply.message}</p></div>
+                    )}
+                    <div className="admin-support-reply-form">
+                      <input
+                        value={reviewReply[review._id] || ""}
+                        onChange={(event) => setReviewReply((current) => ({ ...current, [review._id]: event.target.value }))}
+                        maxLength={2000}
+                        aria-label={`Reply to ${review.userName}'s review`}
+                        placeholder="Write an admin response…"
+                      />
+                      <button type="button" disabled={busyId === String(review._id)} onClick={() => replyToProductReview(review)}>Send reply</button>
+                      <button
+                        type="button"
+                        className="admin-action-button action-danger"
+                        disabled={busyId === String(review._id)}
+                        onClick={() => deleteProductReview(review)}
+                      >
+                        Delete review
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!reviews.length && <div className="admin-empty">No product reviews or feedback.</div>}
+              </div>
+            ) : tab === "support" ? (
+              <div className="admin-support-list">
+                {supportTickets.map((ticket) => (
+                  <article className="admin-support-card" key={ticket._id}>
+                    <div className="admin-support-head">
+                      <div>
+                        <strong>{ticket.subject}</strong>
+                        <small>{ticket.userName} · {ticket.userEmail} · {ticket.category}</small>
+                      </div>
+                      <span className="admin-status status-active">{ticket.status}</span>
+                    </div>
+                    <p className="admin-support-original">{ticket.message}</p>
+                    <div className="admin-support-replies">
+                      {(ticket.replies || []).map((reply, index) => (
+                        <div className="admin-support-reply" key={`${ticket._id}-${index}`}>
+                          <strong>{reply.sender === "admin" ? "Admin" : ticket.userName}</strong>
+                          <p>{reply.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="admin-support-reply-form">
+                      <input
+                        value={supportReply[ticket._id] || ""}
+                        onChange={(event) => setSupportReply((current) => ({ ...current, [ticket._id]: event.target.value }))}
+                        maxLength={2000}
+                        aria-label={`Reply to ${ticket.subject}`}
+                        placeholder="Write a reply to the customer…"
+                      />
+                      <button
+                        type="button"
+                        disabled={busyId === String(ticket._id)}
+                        onClick={() => replySupportTicket(ticket)}
+                      >
+                        Send reply
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-action-button action-danger"
+                        disabled={busyId === String(ticket._id)}
+                        onClick={() => deleteSupportTicket(ticket)}
+                      >
+                        Delete message
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!supportTickets.length && <div className="admin-empty">No support or feedback messages.</div>}
               </div>
             ) : (
               <div className="admin-table-wrap">

@@ -32,6 +32,14 @@ const productReviewSchema = new mongoose.Schema(
       minlength: 5,
       maxlength: 1000,
     },
+    vendorReply: {
+      message: { type: String, trim: true, maxlength: 2000, default: "" },
+      repliedAt: { type: Date, default: null },
+    },
+    adminReply: {
+      message: { type: String, trim: true, maxlength: 2000, default: "" },
+      repliedAt: { type: Date, default: null },
+    },
   },
   { timestamps: true },
 );

@@ -61,10 +61,17 @@ const loadRazorpay = () =>
 
     const existing = document.querySelector("script[data-razorpay-checkout]");
     if (existing) {
-      existing.addEventListener("load", () => resolve(window.Razorpay), { once: true });
+      existing.addEventListener("load", () => resolve(window.Razorpay), {
+        once: true,
+      });
       existing.addEventListener(
         "error",
-        () => reject(new Error("Unable to load Razorpay checkout. Check your connection.")),
+        () =>
+          reject(
+            new Error(
+              "Unable to load Razorpay checkout. Check your connection.",
+            ),
+          ),
         { once: true },
       );
       return;
@@ -75,7 +82,10 @@ const loadRazorpay = () =>
     script.async = true;
     script.dataset.razorpayCheckout = "true";
     script.onload = () => resolve(window.Razorpay);
-    script.onerror = () => reject(new Error("Unable to load Razorpay checkout. Check your connection."));
+    script.onerror = () =>
+      reject(
+        new Error("Unable to load Razorpay checkout. Check your connection."),
+      );
     document.body.appendChild(script);
   });
 
@@ -109,9 +119,7 @@ const getCachedSavedProducts = (type, accountId = getSyncAccount()?._id) => {
     const storageKey = accountId
       ? savedProductsStorageKey(type, accountId)
       : guestSavedProductsStorageKey(type);
-    const products = JSON.parse(
-      localStorage.getItem(storageKey) || "[]",
-    );
+    const products = JSON.parse(localStorage.getItem(storageKey) || "[]");
     return type === "favorites" && Array.isArray(products)
       ? products.map((id) => String(id))
       : products;
@@ -153,9 +161,8 @@ const syncSavedProductsToServer = async (
         send(
           type,
           JSON.parse(
-            localStorage.getItem(
-              savedProductsStorageKey(type, account._id),
-            ) || "[]",
+            localStorage.getItem(savedProductsStorageKey(type, account._id)) ||
+              "[]",
           ),
         ),
       ),
@@ -179,9 +186,7 @@ const fetchUserProducts = async (type, requestAuthenticatedApi) => {
   if (!account?._id) return null;
 
   try {
-    const result = await requestAuthenticatedApi(
-      `/me/products?type=${type}`,
-    );
+    const result = await requestAuthenticatedApi(`/me/products?type=${type}`);
     return {
       ids: Array.isArray(result.ids) ? result.ids : [],
       products: remoteProductList(result.products),
@@ -235,6 +240,222 @@ const getProductSearchScore = (product, query) => {
   }
   return score;
 };
+
+// ——— Support Modal ———————————————————————————————————————
+function SupportModal({ onClose, onGoToOrders }) {
+  const [supportTab, setSupportTab] = useState("faq");
+  const [openFaq, setOpenFaq] = useState(null);
+
+  const faqs = [
+    {
+      q: "How does handmade variation work?",
+      a: "Every OzaBay piece is handcrafted by an artisan, so slight differences in colour, texture, and grain are natural—and part of what makes it yours. Product photos show a representative sample.",
+    },
+    {
+      q: "Can I request a custom or personalised piece?",
+      a: "Yes! Use the 'Made-to-order' section on the homepage to configure your piece—choose form, material, finish, size and tone—then submit a brief. Our team reviews each request and confirms pricing and timelines within 2 business days.",
+    },
+    {
+      q: "Where can I track my order?",
+      a: "Open your Account (top-right), go to the Orders tab, and click 'Track order' on any placed order. You'll see live status updates from your maker through every stage—crafting, shipped, out for delivery, and delivered.",
+    },
+    {
+      q: "What is your return and refund policy?",
+      a: "You can request a return on any item within 7 days of delivery. Open your Account → Orders, find the item and select 'Request return'. Approved returns are refunded to your original payment method within 7–10 business days.",
+    },
+    {
+      q: "How do I cancel an order?",
+      a: "Orders can be cancelled before the maker begins crafting. Open Account → Orders and click 'Cancel order'. Once production starts, cancellation may not be possible—contact support immediately if needed.",
+    },
+    {
+      q: "How are makers verified on OzaBay?",
+      a: "Each vendor is manually reviewed before their products go live. We verify craft identity, product authenticity, and quality standards. Only approved vendors can list products on the platform.",
+    },
+    {
+      q: "Is my payment secure?",
+      a: "All online payments are processed via Razorpay, a PCI-DSS-compliant payment gateway. OzaBay never stores your card details. Cash on delivery is also available at checkout.",
+    },
+    {
+      q: "What shipping methods do you use?",
+      a: "Orders ship via trusted courier partners across India. Standard delivery takes 5–9 business days after dispatch. Expedited options may be available for select pin codes—check at checkout.",
+    },
+  ];
+
+  const policies = [
+    {
+      title: "Shipping & Delivery",
+      icon: "🚚",
+      body: "Standard delivery across India: 5–9 business days after dispatch. Expedited delivery available for select pin codes. Free shipping on orders above ₹2,000. We ship using trusted courier partners with real-time tracking.",
+    },
+    {
+      title: "Returns & Refunds",
+      icon: "↩",
+      body: "7-day return window from the date of delivery. Items must be unused and in original packaging. Raise a return request via Account → Orders. Refunds processed within 7–10 business days to original payment method.",
+    },
+    {
+      title: "Privacy Policy",
+      icon: "🔒",
+      body: "OzaBay collects only the data needed to process your orders and improve your experience. We never sell or share your personal data with third parties for marketing. All data is encrypted in transit and stored securely.",
+    },
+    {
+      title: "Terms & Conditions",
+      icon: "📜",
+      body: "By placing an order on OzaBay you agree to our terms of sale. All products are handmade and subject to natural variation. OzaBay acts as a marketplace connecting buyers with verified artisan vendors. Disputes are resolved under Indian law.",
+    },
+    {
+      title: "Fair Artisan Charter",
+      icon: "🤝",
+      body: "OzaBay is committed to fair trade. All vendors are paid within 7 days of delivery confirmation. We do not impose exclusivity, and artisans retain full IP rights to their craft. Our charter ensures makers receive at least 70% of the sale price.",
+    },
+    {
+      title: "Partner Standards",
+      icon: "⭐",
+      body: "Vendors on OzaBay are manually verified, trained on quality standards, and rated by customers. Vendors with sustained low ratings or policy violations are removed. We conduct quarterly reviews of all active listings.",
+    },
+  ];
+
+  return (
+    <>
+      <button className="modal-close" onClick={onClose}>
+        ×
+      </button>
+      <p className="eyebrow">Customer support</p>
+      <h2>
+        How can we <em>help?</em>
+      </h2>
+
+      <div className="support-tabs">
+        <button
+          className={supportTab === "faq" ? "is-active" : ""}
+          onClick={() => setSupportTab("faq")}
+        >
+          ❓ FAQ
+        </button>
+        <button
+          className={supportTab === "contact" ? "is-active" : ""}
+          onClick={() => setSupportTab("contact")}
+        >
+          💬 Contact us
+        </button>
+        <button
+          className={supportTab === "policies" ? "is-active" : ""}
+          onClick={() => setSupportTab("policies")}
+        >
+          📋 Policies
+        </button>
+      </div>
+
+      {supportTab === "faq" && (
+        <div className="support-faq">
+          {faqs.map((item, i) => (
+            <div
+              key={i}
+              className={`support-faq__item ${openFaq === i ? "is-open" : ""}`}
+            >
+              <button
+                className="support-faq__q"
+                onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                aria-expanded={openFaq === i}
+              >
+                <span>{item.q}</span>
+                <span className="support-faq__chevron" aria-hidden="true">
+                  {openFaq === i ? "−" : "+"}
+                </span>
+              </button>
+              {openFaq === i && <p className="support-faq__a">{item.a}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {supportTab === "contact" && (
+        <div className="support-contact">
+          <p className="support-contact__intro">
+            Our concierge team is available Mon–Sat, 10am–7pm IST. Reach us
+            through any of the channels below and we'll respond within one
+            business day.
+          </p>
+          <div className="support-channels">
+            <a
+              href="mailto:ankush@infinitivecloud.com"
+              className="support-channel"
+            >
+              <span className="support-channel__icon">✉</span>
+              <div>
+                <strong>Email support</strong>
+                <span>ankush@infinitivecloud.com</span>
+                <small>Response within 24 hours</small>
+              </div>
+            </a>
+            <a
+              href="https://wa.me/919999999999?text=Hi%20OzaBay%2C%20I%20need%20help%20with%20my%20order."
+              target="_blank"
+              rel="noopener noreferrer"
+              className="support-channel"
+            >
+              <span className="support-channel__icon">💬</span>
+              <div>
+                <strong>WhatsApp chat</strong>
+                <span>+91 8690393087</span>
+                <small>Fastest response · Mon–Sat 10am–7pm</small>
+              </div>
+            </a>
+            <a href="tel:+919999999999" className="support-channel">
+              <span className="support-channel__icon">📞</span>
+              <div>
+                <strong>Call us</strong>
+                <span>+91 8690393087</span>
+                <small>Mon–Sat · 10am–7pm IST</small>
+              </div>
+            </a>
+            <a
+              href="https://instagram.com/ozabay"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="support-channel"
+            >
+              <span className="support-channel__icon">📸</span>
+              <div>
+                <strong>Instagram DM</strong>
+                <span>https://www.instagram.com/infinitivecloud/</span>
+                <small>DM us on Instagram</small>
+              </div>
+            </a>
+          </div>
+          <div className="support-track-shortcut">
+            <span>🔍</span>
+            <div>
+              <strong>Tracking an order?</strong>
+              <p>
+                Open your Account → Orders tab to see live status for every
+                order you've placed.
+              </p>
+            </div>
+            {onGoToOrders && (
+              <button className="hero-action" onClick={onGoToOrders}>
+                Go to Orders ↗
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {supportTab === "policies" && (
+        <div className="support-policies">
+          {policies.map((policy, i) => (
+            <div key={i} className="support-policy-card">
+              <span className="support-policy-card__icon">{policy.icon}</span>
+              <div>
+                <strong>{policy.title}</strong>
+                <p>{policy.body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 export default function App() {
   const navigate = useNavigate();
@@ -292,7 +513,8 @@ export default function App() {
     }
   });
   const [registeredProducts, setRegisteredProducts] = useState([]);
-  const [registeredProductsLoaded, setRegisteredProductsLoaded] = useState(false);
+  const [registeredProductsLoaded, setRegisteredProductsLoaded] =
+    useState(false);
   const [registeredProductsError, setRegisteredProductsError] = useState("");
   const [vendorProducts, setVendorProducts] = useState([]);
   const [vendorProductsLoaded, setVendorProductsLoaded] = useState(false);
@@ -354,7 +576,9 @@ export default function App() {
   const perPage = 12;
   // Categories are derived dynamically from vendor-registered products only
   const categories = useMemo(() => {
-    const cats = new Set(registeredProducts.map((p) => p.category).filter(Boolean));
+    const cats = new Set(
+      registeredProducts.map((p) => p.category).filter(Boolean),
+    );
     return ["All", ...cats];
   }, [registeredProducts]);
 
@@ -378,7 +602,10 @@ export default function App() {
     return Array.from(groups.values());
   }, [registeredProducts]);
 
-  const catalogProducts = useMemo(() => registeredProducts, [registeredProducts]);
+  const catalogProducts = useMemo(
+    () => registeredProducts,
+    [registeredProducts],
+  );
   const searchMatches = useMemo(
     () =>
       catalogProducts
@@ -437,7 +664,9 @@ export default function App() {
         home: "vendor-dashboard",
       };
       const targetId = vendorSectionMap[id] || "vendor-dashboard";
-      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document
+        .getElementById(targetId)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (vendorRoute || craftRoute) {
@@ -481,7 +710,7 @@ export default function App() {
         document
           .getElementById("crafts-india")
           ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-        40,
+      40,
     );
   };
 
@@ -564,13 +793,17 @@ export default function App() {
       if (syncedAccountRef.current !== null) return;
       localStorage.removeItem("ozabay-cart");
       localStorage.removeItem("ozabay-wishlist");
-      localStorage.setItem(guestSavedProductsStorageKey("cart"), JSON.stringify(cart));
+      localStorage.setItem(
+        guestSavedProductsStorageKey("cart"),
+        JSON.stringify(cart),
+      );
       return;
     }
     if (
       !savedProductsLoadedRef.current ||
       syncedAccountRef.current !== account._id
-    ) return;
+    )
+      return;
     localStorage.setItem(
       savedProductsStorageKey("cart", account._id),
       JSON.stringify(cart),
@@ -579,13 +812,17 @@ export default function App() {
   useEffect(() => {
     if (!account?._id) {
       if (syncedAccountRef.current !== null) return;
-      localStorage.setItem(guestSavedProductsStorageKey("favorites"), JSON.stringify(wish));
+      localStorage.setItem(
+        guestSavedProductsStorageKey("favorites"),
+        JSON.stringify(wish),
+      );
       return;
     }
     if (
       !savedProductsLoadedRef.current ||
       syncedAccountRef.current !== account._id
-    ) return;
+    )
+      return;
     localStorage.setItem(
       savedProductsStorageKey("favorites", account._id),
       JSON.stringify(wish),
@@ -617,9 +854,7 @@ export default function App() {
       if (cancelled) return;
       if (!serverCart || !serverWish) return;
       savedProductsLoadedRef.current = true;
-      setCart((current) =>
-        mergeSavedProducts(current, serverCart.products),
-      );
+      setCart((current) => mergeSavedProducts(current, serverCart.products));
       setWish((current) => [
         ...current,
         ...serverWish.ids
@@ -855,7 +1090,10 @@ export default function App() {
       paymentDetails: savedOrder.paymentDetails,
       cancelledAt: savedOrder.cancelledAt,
     };
-    setOrders((current) => [order, ...current.filter((item) => item.id !== order.id)]);
+    setOrders((current) => [
+      order,
+      ...current.filter((item) => item.id !== order.id),
+    ]);
     setPlacedOrder(order);
     setCart([]);
     setCheckoutError("");
@@ -870,7 +1108,9 @@ export default function App() {
       setModal("account");
       return;
     }
-    if (cart.some((item) => !/^vendor-[a-fA-F0-9]{24}$/.test(String(item.id)))) {
+    if (
+      cart.some((item) => !/^vendor-[a-fA-F0-9]{24}$/.test(String(item.id)))
+    ) {
       setCheckoutError(
         "Custom-made items need a separate quote and can't be included in this checkout. Remove them from your cart to continue.",
       );
@@ -903,7 +1143,9 @@ export default function App() {
         throw new Error("Razorpay checkout is unavailable in this browser.");
       }
       if (!razorpay?.keyId || !razorpay?.orderId) {
-        throw new Error("Online payment could not be initialized. Please try again.");
+        throw new Error(
+          "Online payment could not be initialized. Please try again.",
+        );
       }
 
       const paymentWindow = new window.Razorpay({
@@ -949,7 +1191,8 @@ export default function App() {
       paymentWindow.on("payment.failed", (response) => {
         console.error("Razorpay payment failed:", response?.error);
         setCheckoutError(
-          response?.error?.description || "Online payment failed. Please try again.",
+          response?.error?.description ||
+            "Online payment failed. Please try again.",
         );
         setCheckoutBusy(false);
       });
@@ -1121,7 +1364,10 @@ export default function App() {
     };
 
     loadOrders();
-    const interval = window.setInterval(() => loadOrders({ silent: true }), 15000);
+    const interval = window.setInterval(
+      () => loadOrders({ silent: true }),
+      15000,
+    );
     const onVisible = () => {
       if (document.visibilityState === "visible") loadOrders({ silent: true });
     };
@@ -1261,6 +1507,18 @@ export default function App() {
     );
     return result;
   };
+  const listSupportMessages = () =>
+    requestAuthenticatedApi("/support");
+  const createSupportMessage = (payload) =>
+    requestAuthenticatedApi("/support", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  const replySupportMessage = (ticketId, message) =>
+    requestAuthenticatedApi(`/support/${encodeURIComponent(ticketId)}/replies`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
   const submitProductReview = async (product, review) => {
     const result = await requestAuthenticatedApi(
       `/products/${encodeURIComponent(product.id)}/reviews`,
@@ -1319,7 +1577,10 @@ export default function App() {
     setAccount(result.user);
     return result.user;
   };
-  const saveDeliveryLocation = async (deliveryLocations, activeLocationIndex) => {
+  const saveDeliveryLocation = async (
+    deliveryLocations,
+    activeLocationIndex,
+  ) => {
     const updatedAccount = await updateProfile({
       deliveryLocations,
       activeLocationIndex,
@@ -1331,7 +1592,9 @@ export default function App() {
       email: updatedAccount.email || current.email,
       phone: deliveryLocation?.mobile || current.phone,
       address: deliveryLocation
-        ? [deliveryLocation.building, deliveryLocation.area].filter(Boolean).join(", ")
+        ? [deliveryLocation.building, deliveryLocation.area]
+            .filter(Boolean)
+            .join(", ")
         : "",
       city: deliveryLocation?.city || current.city,
       pincode: deliveryLocation?.pincode || current.pincode,
@@ -1370,25 +1633,58 @@ export default function App() {
       if (id === "listings") {
         setVendorRoute(true);
         navigate("/vendor");
-        setTimeout(() => document.getElementById("vendor-product-list")?.scrollIntoView({ behavior: "smooth" }), 60);
+        setTimeout(
+          () =>
+            document
+              .getElementById("vendor-product-list")
+              ?.scrollIntoView({ behavior: "smooth" }),
+          60,
+        );
         return;
       }
       if (id === "add-product") {
         setVendorRoute(true);
         navigate("/vendor");
-        setTimeout(() => document.getElementById("vendor-product-form")?.scrollIntoView({ behavior: "smooth" }), 60);
+        setTimeout(
+          () =>
+            document
+              .getElementById("vendor-product-form")
+              ?.scrollIntoView({ behavior: "smooth" }),
+          60,
+        );
         return;
       }
       if (id === "locations") {
         setVendorRoute(true);
         navigate("/vendor");
-        setTimeout(() => document.getElementById("vendor-locations")?.scrollIntoView({ behavior: "smooth" }), 60);
+        setTimeout(
+          () =>
+            document
+              .getElementById("vendor-locations")
+              ?.scrollIntoView({ behavior: "smooth" }),
+          60,
+        );
         return;
       }
       if (id === "analytics" || id === "orders") {
         setVendorRoute(true);
         navigate("/vendor");
-        setTimeout(() => document.getElementById("vendor-orders")?.scrollIntoView({ behavior: "smooth" }), 60);
+        setTimeout(
+          () =>
+            document
+              .getElementById("vendor-orders")
+              ?.scrollIntoView({ behavior: "smooth" }),
+          60,
+        );
+        return;
+      }
+      if (id === "vendor-support") {
+        setVendorRoute(true);
+        navigate("/vendor");
+        setTimeout(
+          () => document.getElementById("vendor-support")?.scrollIntoView({ behavior: "smooth" }),
+          60,
+        );
         return;
       }
     }
@@ -1595,8 +1891,9 @@ export default function App() {
                     </div>
                   </Reveal>
                   <div className="recent-rail">
-                    {catalogProducts.filter((p) => recentlyViewed.includes(p.id)).map(
-                      (p) => (
+                    {catalogProducts
+                      .filter((p) => recentlyViewed.includes(p.id))
+                      .map((p) => (
                         <button
                           key={p.id}
                           onClick={() =>
@@ -1608,8 +1905,7 @@ export default function App() {
                           <strong>{p.name}</strong>
                           <small>{p.price}</small>
                         </button>
-                      ),
-                    )}
+                      ))}
                   </div>
                 </div>
               </section>
@@ -1643,8 +1939,8 @@ export default function App() {
                       </h2>
                     </div>
                     <p>
-                      Explore pieces registered by independent makers across India,
-                      organized into craft collections.
+                      Explore pieces registered by independent makers across
+                      India, organized into craft collections.
                     </p>
                   </div>
                 </Reveal>
@@ -1652,21 +1948,26 @@ export default function App() {
                 {registeredCollections.length > 0 ? (
                   <div className="collection-grid">
                     {registeredCollections.map((group) => (
-                      <article
-                        key={group.category}
-                        className="collection-card"
-                      >
+                      <article key={group.category} className="collection-card">
                         <button
                           type="button"
                           onClick={() => openCollection(group.category)}
                         >
                           <div className="collection-card__image">
                             {group.coverImage ? (
-                              <img src={group.coverImage} alt={group.category} />
+                              <img
+                                src={group.coverImage}
+                                alt={group.category}
+                              />
                             ) : (
-                              <div className="collection-card__placeholder">✦</div>
+                              <div className="collection-card__placeholder">
+                                ✦
+                              </div>
                             )}
-                            <span>{group.count} {group.count === 1 ? "piece" : "pieces"}</span>
+                            <span>
+                              {group.count}{" "}
+                              {group.count === 1 ? "piece" : "pieces"}
+                            </span>
                           </div>
                           <div className="collection-card__copy">
                             <div>
@@ -1684,8 +1985,8 @@ export default function App() {
                     <span className="collection-empty-icon">🏺</span>
                     <h3>Collections in the making</h3>
                     <p>
-                      Artisan makers are currently registering their handcrafted pieces.
-                      Check back soon or explore the active marketplace.
+                      Artisan makers are currently registering their handcrafted
+                      pieces. Check back soon or explore the active marketplace.
                     </p>
                     <button
                       type="button"
@@ -1761,37 +2062,48 @@ export default function App() {
                 {/* Loading state */}
                 {!registeredProductsLoaded && !registeredProductsError && (
                   <div className="catalog-loading">
-                    <div className="catalog-loading__spinner" aria-hidden="true" />
+                    <div
+                      className="catalog-loading__spinner"
+                      aria-hidden="true"
+                    />
                     <p>Loading maker listings…</p>
                   </div>
                 )}
 
                 {/* Loaded but no products registered at all */}
-                {registeredProductsLoaded && registeredProducts.length === 0 && (
-                  <div className="empty-state empty-state--marketplace">
-                    <span className="empty-state__icon" aria-hidden="true">✦</span>
-                    <h3>No maker listings yet.</h3>
-                    <p>Makers are setting up their storefronts — check back soon.</p>
-                  </div>
-                )}
+                {registeredProductsLoaded &&
+                  registeredProducts.length === 0 && (
+                    <div className="empty-state empty-state--marketplace">
+                      <span className="empty-state__icon" aria-hidden="true">
+                        ✦
+                      </span>
+                      <h3>No maker listings yet.</h3>
+                      <p>
+                        Makers are setting up their storefronts — check back
+                        soon.
+                      </p>
+                    </div>
+                  )}
 
                 {/* Products loaded, but filter/search returns nothing */}
-                {registeredProductsLoaded && registeredProducts.length > 0 && visible.length === 0 && (
-                  <div className="empty-state">
-                    <h3>No pieces found.</h3>
-                    <p>Try another search or collection.</p>
-                    <button
-                      className="hero-action"
-                      onClick={() => {
-                        setFilter("All");
-                        setQuery("");
-                        setPriceBand(null);
-                      }}
-                    >
-                      Reset edit ↗
-                    </button>
-                  </div>
-                )}
+                {registeredProductsLoaded &&
+                  registeredProducts.length > 0 &&
+                  visible.length === 0 && (
+                    <div className="empty-state">
+                      <h3>No pieces found.</h3>
+                      <p>Try another search or collection.</p>
+                      <button
+                        className="hero-action"
+                        onClick={() => {
+                          setFilter("All");
+                          setQuery("");
+                          setPriceBand(null);
+                        }}
+                      >
+                        Reset edit ↗
+                      </button>
+                    </div>
+                  )}
 
                 {visible.length ? (
                   <div className="product-grid">
@@ -1824,10 +2136,22 @@ export default function App() {
                                 event.stopPropagation();
                                 toggleWish(product);
                               }}
-                              aria-label={wish.some((id) => String(id) === String(product.id)) ? `Remove ${product.name} from favorites` : `Add ${product.name} to favorites`}
-                              aria-pressed={wish.some((id) => String(id) === String(product.id))}
+                              aria-label={
+                                wish.some(
+                                  (id) => String(id) === String(product.id),
+                                )
+                                  ? `Remove ${product.name} from favorites`
+                                  : `Add ${product.name} to favorites`
+                              }
+                              aria-pressed={wish.some(
+                                (id) => String(id) === String(product.id),
+                              )}
                             >
-                              {wish.some((id) => String(id) === String(product.id)) ? "♥" : "♡"}
+                              {wish.some(
+                                (id) => String(id) === String(product.id),
+                              )
+                                ? "♥"
+                                : "♡"}
                             </button>
                             <div
                               className="product-card__tools"
@@ -2275,48 +2599,96 @@ export default function App() {
               <span className="footer-logo-mark">✦</span> OzaBay
             </a>
             <p className="footer-brand-copy">
-              Connecting generational Indian craft traditions with mindful, contemporary living. Every piece carries the signature marks of human hands.
+              Connecting generational Indian craft traditions with mindful,
+              contemporary living. Every piece carries the signature marks of
+              human hands.
             </p>
             <div className="footer-craft-origin">
               <span className="footer-origin-dot" />
-              <span>Artisan Ateliers in Jaipur · Molela · Saharanpur · Khurja · Kutch</span>
+              <span>
+                Artisan Ateliers in Jaipur · Molela · Saharanpur · Khurja ·
+                Kutch
+              </span>
             </div>
           </div>
 
           <div>
             <span className="footer-heading">Collections</span>
-            <button type="button" onClick={() => openCollection("Ceramics")}>Ceramics & Stoneware</button>
-            <button type="button" onClick={() => openCollection("Blue Pottery")}>Jaipur Blue Pottery</button>
-            <button type="button" onClick={() => openCollection("Terracotta")}>Fired Terracotta</button>
-            <button type="button" onClick={() => openCollection("Textiles")}>Handloom Textiles</button>
-            <button type="button" onClick={() => openCollection("Woodcraft")}>Carved Woodcraft</button>
-            <button type="button" onClick={() => openCollection("Metalcraft")}>Brass & Kansa</button>
-            <button type="button" onClick={() => openCollection("Jewellery")}>Artisan Jewellery</button>
-            <button type="button" onClick={() => go("collections")}>View All Collections ↗</button>
+            <button type="button" onClick={() => openCollection("Ceramics")}>
+              Ceramics & Stoneware
+            </button>
+            <button
+              type="button"
+              onClick={() => openCollection("Blue Pottery")}
+            >
+              Jaipur Blue Pottery
+            </button>
+            <button type="button" onClick={() => openCollection("Terracotta")}>
+              Fired Terracotta
+            </button>
+            <button type="button" onClick={() => openCollection("Textiles")}>
+              Handloom Textiles
+            </button>
+            <button type="button" onClick={() => openCollection("Woodcraft")}>
+              Carved Woodcraft
+            </button>
+            <button type="button" onClick={() => openCollection("Metalcraft")}>
+              Brass & Kansa
+            </button>
+            <button type="button" onClick={() => openCollection("Jewellery")}>
+              Artisan Jewellery
+            </button>
+            <button type="button" onClick={() => go("collections")}>
+              View All Collections ↗
+            </button>
           </div>
 
           <div>
             <span className="footer-heading">The Atelier</span>
-            <button type="button" onClick={() => go("products")}>The Marketplace</button>
-            <button type="button" onClick={() => go("artisans")}>Meet the Makers</button>
-            <button type="button" onClick={() => go("crafts-india")}>India Craft Atlas</button>
-            <button type="button" onClick={() => go("create")}>Create Your Own</button>
-            <button type="button" onClick={() => setModal("corporate")}>Corporate Gifting</button>
-            <button type="button" onClick={() => setModal("about")}>Our Story</button>
+            <button type="button" onClick={() => go("products")}>
+              The Marketplace
+            </button>
+            <button type="button" onClick={() => go("artisans")}>
+              Meet the Makers
+            </button>
+            <button type="button" onClick={() => go("crafts-india")}>
+              India Craft Atlas
+            </button>
+            <button type="button" onClick={() => go("create")}>
+              Create Your Own
+            </button>
+            <button type="button" onClick={() => setModal("corporate")}>
+              Corporate Gifting
+            </button>
+            <button type="button" onClick={() => setModal("about")}>
+              Our Story
+            </button>
           </div>
 
           <div>
             <span className="footer-heading">Artisan Hub</span>
-            <button type="button" onClick={() => openNav("sell")}>Sell on OzaBay</button>
-            <button type="button" onClick={() => openNav("sell")}>Maker Studio Access</button>
-            <button type="button" onClick={() => setModal("corporate")}>Craft Commissions</button>
-            <button type="button" onClick={() => openNav("sell")}>Shop Locations</button>
-            <button type="button" onClick={() => setModal("support")}>Partner Standards</button>
+            <button type="button" onClick={() => openNav("sell")}>
+              Sell on OzaBay
+            </button>
+            <button type="button" onClick={() => openNav("sell")}>
+              Maker Studio Access
+            </button>
+            <button type="button" onClick={() => setModal("corporate")}>
+              Craft Commissions
+            </button>
+            <button type="button" onClick={() => openNav("sell")}>
+              Shop Locations
+            </button>
+            <button type="button" onClick={() => setModal("support")}>
+              Partner Standards
+            </button>
           </div>
 
           <div>
             <span className="footer-heading">Your Space & Care</span>
-            <button type="button" onClick={openAccount}>Artisan Account</button>
+            <button type="button" onClick={openAccount}>
+              Artisan Account
+            </button>
             {account?.accountType !== "vendor" && (
               <>
                 <button type="button" onClick={() => setModal("wishlist")}>
@@ -2330,8 +2702,12 @@ export default function App() {
                 </button>
               </>
             )}
-            <button type="button" onClick={() => setModal("support")}>Customer Concierge</button>
-            <button type="button" onClick={() => setModal("support")}>Shipping & Returns</button>
+            <button type="button" onClick={() => setModal("support")}>
+              Customer Concierge
+            </button>
+            <button type="button" onClick={() => setModal("support")}>
+              Shipping & Returns
+            </button>
           </div>
         </div>
 
@@ -2339,16 +2715,25 @@ export default function App() {
         <div className="oz-footer__bottom">
           <div className="oz-container oz-footer__bottom-inner">
             <p className="oz-footer__copyright">
-              © {new Date().getFullYear()} OzaBay Crafts Pvt. Ltd. Preserving slow, living craft traditions across India 🇮🇳
+              © {new Date().getFullYear()} OzaBay Crafts Pvt. Ltd. Preserving
+              slow, living craft traditions across India 🇮🇳
             </p>
             <div className="oz-footer__legal-links">
-              <button type="button" onClick={() => setModal("about")}>Craft Transparency</button>
+              <button type="button" onClick={() => setModal("about")}>
+                Craft Transparency
+              </button>
               <span>·</span>
-              <button type="button" onClick={() => setModal("support")}>Fair Artisan Charter</button>
+              <button type="button" onClick={() => setModal("support")}>
+                Fair Artisan Charter
+              </button>
               <span>·</span>
-              <button type="button" onClick={() => setModal("support")}>Terms & Conditions</button>
+              <button type="button" onClick={() => setModal("support")}>
+                Terms & Conditions
+              </button>
               <span>·</span>
-              <button type="button" onClick={() => setModal("support")}>Privacy Policy</button>
+              <button type="button" onClick={() => setModal("support")}>
+                Privacy Policy
+              </button>
             </div>
           </div>
         </div>
@@ -2811,10 +3196,7 @@ export default function App() {
             )}
             {modal === "account" && (
               <>
-                <button
-                  className="modal-close"
-                  onClick={() => setModal(null)}
-                >
+                <button className="modal-close" onClick={() => setModal(null)}>
                   ×
                 </button>
                 {account ? (
@@ -2823,8 +3205,11 @@ export default function App() {
                     isVendor={account.accountType === "vendor"}
                     vendorProducts={vendorProducts}
                     vendorProductsLoaded={vendorProductsLoaded}
-                    favorites={[...catalogProducts, ...REGIONAL_CRAFT_PRODUCTS].filter(
-                      (p) => wish.some((id) => String(id) === String(p.id)),
+                    favorites={[
+                      ...catalogProducts,
+                      ...REGIONAL_CRAFT_PRODUCTS,
+                    ].filter((p) =>
+                      wish.some((id) => String(id) === String(p.id)),
                     )}
                     bag={cart}
                     bagTotal={cartTotal}
@@ -2850,6 +3235,9 @@ export default function App() {
                     orders={orders}
                     onCancelOrder={cancelCustomerOrder}
                     onRequestOrderItemReturn={requestOrderItemReturn}
+                    onListSupportMessages={listSupportMessages}
+                    onCreateSupportMessage={createSupportMessage}
+                    onReplySupportMessage={replySupportMessage}
                   />
                 ) : authView === "signin" ? (
                   <SignIn
@@ -2890,43 +3278,43 @@ export default function App() {
                         wish.some((id) => String(id) === String(p.id)),
                       )
                       .map((p, i) => (
-                      <article
-                        key={p.id}
-                        className="wishlist-item"
-                        style={{ "--bag-index": i }}
-                      >
-                        <img src={p.image} alt={p.name} />
-                        <div className="wishlist-item__info">
-                          <strong>{p.name}</strong>
-                          <span>
-                            {p.category} · {money(p.priceValue)}
-                          </span>
-                        </div>
-                        <div className="wishlist-item__actions">
-                          <button
-                            className="buy-now"
-                            onClick={() => {
-                              if (add(p)) setModal("checkout");
-                            }}
-                          >
-                            Buy now
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (add(p)) setModal("cart");
-                            }}
-                          >
-                            Add to bag
-                          </button>
-                          <button
-                            className="wishlist-item__remove"
-                            onClick={() => toggleWish(p)}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </article>
-                    ))}
+                        <article
+                          key={p.id}
+                          className="wishlist-item"
+                          style={{ "--bag-index": i }}
+                        >
+                          <img src={p.image} alt={p.name} />
+                          <div className="wishlist-item__info">
+                            <strong>{p.name}</strong>
+                            <span>
+                              {p.category} · {money(p.priceValue)}
+                            </span>
+                          </div>
+                          <div className="wishlist-item__actions">
+                            <button
+                              className="buy-now"
+                              onClick={() => {
+                                if (add(p)) setModal("checkout");
+                              }}
+                            >
+                              Buy now
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (add(p)) setModal("cart");
+                              }}
+                            >
+                              Add to bag
+                            </button>
+                            <button
+                              className="wishlist-item__remove"
+                              onClick={() => toggleWish(p)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </article>
+                      ))}
                   </div>
                 ) : (
                   <p>
@@ -3074,9 +3462,13 @@ export default function App() {
                           </div>
                           <div className="checkout-recap__info">
                             <strong>{p.name}</strong>
-                            <span>{p.custom ? "Custom · made to order" : "Handmade"}</span>
+                            <span>
+                              {p.custom ? "Custom · made to order" : "Handmade"}
+                            </span>
                           </div>
-                          <strong className="checkout-recap__price">{money(p.priceValue * p.qty)}</strong>
+                          <strong className="checkout-recap__price">
+                            {money(p.priceValue * p.qty)}
+                          </strong>
                         </div>
                       ))}
                     </div>
@@ -3117,7 +3509,6 @@ export default function App() {
                   {/* ── RIGHT PANEL ─ Form ── */}
                   <div className="checkout-panel checkout-panel--right">
                     <form className="checkout-form" onSubmit={placeOrder}>
-
                       <div className="checkout-section">
                         <p className="checkout-section__title">Contact</p>
                         <div className="checkout-fields">
@@ -3129,7 +3520,10 @@ export default function App() {
                               placeholder="Your name"
                               value={checkout.name}
                               onChange={(e) =>
-                                setCheckout((v) => ({ ...v, name: e.target.value }))
+                                setCheckout((v) => ({
+                                  ...v,
+                                  name: e.target.value,
+                                }))
                               }
                             />
                           </div>
@@ -3141,7 +3535,10 @@ export default function App() {
                               placeholder="+91 98765 43210"
                               value={checkout.phone}
                               onChange={(e) =>
-                                setCheckout((v) => ({ ...v, phone: e.target.value }))
+                                setCheckout((v) => ({
+                                  ...v,
+                                  phone: e.target.value,
+                                }))
                               }
                             />
                           </div>
@@ -3154,7 +3551,10 @@ export default function App() {
                               placeholder="you@example.com"
                               value={checkout.email}
                               onChange={(e) =>
-                                setCheckout((v) => ({ ...v, email: e.target.value }))
+                                setCheckout((v) => ({
+                                  ...v,
+                                  email: e.target.value,
+                                }))
                               }
                             />
                           </div>
@@ -3162,7 +3562,9 @@ export default function App() {
                       </div>
 
                       <div className="checkout-section">
-                        <p className="checkout-section__title">Delivery address</p>
+                        <p className="checkout-section__title">
+                          Delivery address
+                        </p>
                         <div className="checkout-fields">
                           <div className="checkout-field">
                             <label htmlFor="co-address">Street address</label>
@@ -3187,7 +3589,10 @@ export default function App() {
                               placeholder="Mumbai"
                               value={checkout.city}
                               onChange={(e) =>
-                                setCheckout((v) => ({ ...v, city: e.target.value }))
+                                setCheckout((v) => ({
+                                  ...v,
+                                  city: e.target.value,
+                                }))
                               }
                             />
                           </div>
@@ -3211,17 +3616,29 @@ export default function App() {
                       </div>
 
                       <div className="checkout-section">
-                        <p className="checkout-section__title">Payment method</p>
+                        <p className="checkout-section__title">
+                          Payment method
+                        </p>
                         <div className="checkout-payment-opts">
                           {[
-                            { value: "Cash on delivery", icon: "💵", label: "Cash on Delivery" },
-                            { value: "Razorpay", icon: "🔒", label: "Pay online with Razorpay" },
+                            {
+                              value: "Cash on delivery",
+                              icon: "💵",
+                              label: "Cash on Delivery",
+                            },
+                            {
+                              value: "Razorpay",
+                              icon: "🔒",
+                              label: "Pay online with Razorpay",
+                            },
                           ].map((opt) => (
                             <label
                               key={opt.value}
                               className={
                                 "checkout-payment-opt" +
-                                (checkout.payment === opt.value ? " is-selected" : "")
+                                (checkout.payment === opt.value
+                                  ? " is-selected"
+                                  : "")
                               }
                             >
                               <input
@@ -3230,12 +3647,21 @@ export default function App() {
                                 value={opt.value}
                                 checked={checkout.payment === opt.value}
                                 onChange={(e) =>
-                                  setCheckout((v) => ({ ...v, payment: e.target.value }))
+                                  setCheckout((v) => ({
+                                    ...v,
+                                    payment: e.target.value,
+                                  }))
                                 }
                               />
-                              <span className="checkout-payment-opt__icon">{opt.icon}</span>
-                              <span className="checkout-payment-opt__label">{opt.label}</span>
-                              <span className="checkout-payment-opt__check">✓</span>
+                              <span className="checkout-payment-opt__icon">
+                                {opt.icon}
+                              </span>
+                              <span className="checkout-payment-opt__label">
+                                {opt.label}
+                              </span>
+                              <span className="checkout-payment-opt__check">
+                                ✓
+                              </span>
                             </label>
                           ))}
                         </div>
@@ -3258,11 +3684,14 @@ export default function App() {
                               ? "Pay securely"
                               : "Place order"}
                         </span>
-                        <span className="checkout-submit__amount">{money(cartTotal)}</span>
+                        <span className="checkout-submit__amount">
+                          {money(cartTotal)}
+                        </span>
                         <span className="checkout-submit__arrow">↗</span>
                       </button>
                       <p className="checkout-disclaimer">
-                        Online payments are processed securely by Razorpay. Cash on delivery is payable to the courier.
+                        Online payments are processed securely by Razorpay. Cash
+                        on delivery is payable to the courier.
                       </p>
                     </form>
                   </div>
@@ -3953,29 +4382,16 @@ export default function App() {
               </>
             )}
             {modal === "support" && (
-              <>
-                <button className="modal-close" onClick={() => setModal(null)}>
-                  ×
-                </button>
-                <p className="eyebrow">Support</p>
-                <h2>
-                  How can we <em>help?</em>
-                </h2>
-                <div className="faq-list">
-                  <button>
-                    How does handmade variation work? <span>+</span>
-                  </button>
-                  <button>
-                    Can I request a custom piece? <span>+</span>
-                  </button>
-                  <button>
-                    Where can I track an order? <span>+</span>
-                  </button>
-                  <button>
-                    How do maker profiles work? <span>+</span>
-                  </button>
-                </div>
-              </>
+              <SupportModal
+                onClose={() => setModal(null)}
+                onGoToOrders={
+                  account
+                    ? () => {
+                        setModal("account");
+                      }
+                    : null
+                }
+              />
             )}
             {modal === "about" && (
               <>

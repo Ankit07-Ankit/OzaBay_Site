@@ -10,6 +10,7 @@ import Session from "../models/session.model.js";
 import User from "../models/user.model.js";
 import UserProduct from "../models/user-product.model.js";
 import VendorProduct from "../models/vendor-product.model.js";
+import SupportMessage from "../models/support-message.model.js";
 import { removeVendorProduct } from "./vendor-product.controller.js";
 
 const adminLoginSchema = Joi.object({
@@ -352,6 +353,55 @@ const deleteProduct = async (req, res, next) => {
   }
 };
 
+const listSupportMessages = async (req, res, next) => {
+  try {
+    const tickets = await SupportMessage.find({})
+      .sort({ createdAt: -1 })
+      .lean();
+    return res.status(200).json({ tickets });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const replyToSupportMessage = async (req, res, next) => {
+  const schema = Joi.object({
+    message: Joi.string().trim().min(2).max(2000).required(),
+  });
+  const { error, value } = schema.validate(req.body, { abortEarly: true });
+  if (error) return res.status(400).json({ message: error.details[0].message });
+  try {
+    const ticket = await SupportMessage.findByIdAndUpdate(
+      req.params.ticketId,
+      {
+        $push: { replies: { sender: "admin", message: value.message, createdAt: new Date() } },
+        $set: { status: "Replied" },
+      },
+      { new: true, runValidators: true },
+    );
+    if (!ticket) return res.status(404).json({ message: "Support message not found." });
+    return res.status(200).json({ message: "Reply sent to the customer.", ticket });
+  } catch (replyError) {
+    if (replyError.name === "CastError") {
+      return res.status(400).json({ message: "Invalid support message identifier." });
+    }
+    return next(replyError);
+  }
+};
+
+const deleteSupportMessage = async (req, res, next) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.ticketId)) {
+    return res.status(400).json({ message: "Invalid support message identifier." });
+  }
+  try {
+    const ticket = await SupportMessage.findByIdAndDelete(req.params.ticketId);
+    if (!ticket) return res.status(404).json({ message: "Support message not found." });
+    return res.status(200).json({ message: "Support or feedback message deleted." });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export {
   adminLogin,
   adminLogout,
@@ -362,4 +412,7 @@ export {
   listOrders,
   listProducts,
   updateAccountStatus,
+  listSupportMessages,
+  replyToSupportMessage,
+  deleteSupportMessage,
 };

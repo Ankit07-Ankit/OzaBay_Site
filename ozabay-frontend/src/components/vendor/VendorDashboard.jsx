@@ -49,6 +49,7 @@ const VENDOR_FULFILLMENT_STATUSES = [
   "Received",
   "Crafting",
   "Shipped",
+  "Out for delivery",
   "Delivered",
 ];
 
@@ -87,6 +88,15 @@ export default function VendorDashboard({ account, request }) {
   const [orderActionId, setOrderActionId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("All");
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [reviewReply, setReviewReply] = useState({});
+  const [supportTickets, setSupportTickets] = useState([]);
+  const [supportLoading, setSupportLoading] = useState(true);
+  const [supportCategory, setSupportCategory] = useState("Vendor");
+  const [supportSubject, setSupportSubject] = useState("");
+  const [supportText, setSupportText] = useState("");
+  const [supportReply, setSupportReply] = useState({});
 
   /* ── Locations Management State ── */
   const [locations, setLocations] = useState(() => {
@@ -132,6 +142,104 @@ export default function VendorDashboard({ account, request }) {
       setOrdersError(requestError.message || "Unable to load orders.");
     } finally {
       setOrdersLoading(false);
+    }
+  };
+
+  const loadReviews = async () => {
+    setReviewsLoading(true);
+    try {
+      const result = await request("/reviews");
+      setReviews(result.reviews || []);
+    } catch (requestError) {
+      setOrdersError(requestError.message || "Unable to load product reviews.");
+    } finally {
+      setReviewsLoading(false);
+    }
+  };
+
+  const loadSupportMessages = async () => {
+    setSupportLoading(true);
+    try {
+      const result = await request("/support");
+      setSupportTickets(result.tickets || []);
+    } catch (requestError) {
+      setOrdersError(requestError.message || "Unable to load support messages.");
+    } finally {
+      setSupportLoading(false);
+    }
+  };
+
+  const submitSupportMessage = async (event) => {
+    event.preventDefault();
+    setOrderActionId("support-create");
+    setOrdersError("");
+    setOrdersNotice("");
+    try {
+      const result = await request("/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: supportCategory,
+          subject: supportSubject,
+          message: supportText,
+        }),
+      });
+      setSupportTickets((current) => [result.ticket, ...current]);
+      setSupportSubject("");
+      setSupportText("");
+      setOrdersNotice("Message sent to OzaBay admin support.");
+    } catch (requestError) {
+      setOrdersError(requestError.message || "Unable to send support message.");
+    } finally {
+      setOrderActionId("");
+    }
+  };
+
+  const submitSupportReply = async (ticket) => {
+    const message = (supportReply[ticket._id] || "").trim();
+    if (!message) return;
+    setOrderActionId(`support:${ticket._id}`);
+    setOrdersError("");
+    setOrdersNotice("");
+    try {
+      const result = await request(`/support/${ticket._id}/replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      setSupportTickets((current) =>
+        current.map((item) => item._id === ticket._id ? result.ticket : item),
+      );
+      setSupportReply((current) => ({ ...current, [ticket._id]: "" }));
+      setOrdersNotice("Reply sent to OzaBay admin.");
+    } catch (requestError) {
+      setOrdersError(requestError.message || "Unable to send support reply.");
+    } finally {
+      setOrderActionId("");
+    }
+  };
+
+  const replyToReview = async (review) => {
+    const message = (reviewReply[review._id] || "").trim();
+    if (!message) return;
+    setOrderActionId(`review:${review._id}`);
+    setOrdersError("");
+    setOrdersNotice("");
+    try {
+      const result = await request(`/reviews/${review._id}/replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      setReviews((current) =>
+        current.map((item) => item._id === review._id ? { ...item, ...result.review } : item),
+      );
+      setReviewReply((current) => ({ ...current, [review._id]: "" }));
+      setOrdersNotice("Reply sent to the customer.");
+    } catch (requestError) {
+      setOrdersError(requestError.message || "Unable to send review reply.");
+    } finally {
+      setOrderActionId("");
     }
   };
 
@@ -245,6 +353,8 @@ export default function VendorDashboard({ account, request }) {
     loadProducts();
     loadLocations();
     loadOrders();
+    loadReviews();
+    loadSupportMessages();
   }, []);
 
   useEffect(() => () => {
@@ -1387,6 +1497,160 @@ export default function VendorDashboard({ account, request }) {
         )}
       </section>
 
+      {/* ── Vendor Support & Admin Contact ── */}
+      <section className="vendor-support-section" id="vendor-support">
+        <div className="vendor-orders-header">
+          <div>
+            <p className="eyebrow">Maker Concierge</p>
+            <h2>Vendor Support & Admin Help</h2>
+          </div>
+          <button
+            type="button"
+            className="v-action-btn v-action-btn--ghost"
+            onClick={loadSupportMessages}
+            disabled={supportLoading}
+          >
+            {supportLoading ? "Refreshing…" : "Refresh messages"}
+          </button>
+        </div>
+
+        <div className="vendor-support-direct">
+          <a href="mailto:ankush@infinitivecloud.com">
+            <span>✉</span><div><strong>Email OzaBay</strong><small>ankush@infinitivecloud.com</small></div>
+          </a>
+          <a href="tel:+918690393087">
+            <span>📞</span><div><strong>Call support</strong><small>+91 8690393087</small></div>
+          </a>
+          <a href="https://wa.me/918690393087?text=Hi%20OzaBay%2C%20I%20need%20vendor%20support." target="_blank" rel="noopener noreferrer">
+            <span>💬</span><div><strong>WhatsApp vendor desk</strong><small>Chat with OzaBay support</small></div>
+          </a>
+        </div>
+
+        <form className="vendor-support-form" onSubmit={submitSupportMessage}>
+          <label>
+            <span>Topic</span>
+            <select value={supportCategory} onChange={(event) => setSupportCategory(event.target.value)}>
+              <option value="Vendor">Vendor help</option>
+              <option value="Support">Support</option>
+              <option value="Feedback">Feedback</option>
+              <option value="Order">Order issue</option>
+              <option value="Return">Return issue</option>
+              <option value="Review">Review issue</option>
+            </select>
+          </label>
+          <label>
+            <span>Subject</span>
+            <input value={supportSubject} onChange={(event) => setSupportSubject(event.target.value)} minLength={3} maxLength={120} required placeholder="How can the admin help?" />
+          </label>
+          <label>
+            <span>Message</span>
+            <textarea value={supportText} onChange={(event) => setSupportText(event.target.value)} minLength={5} maxLength={2000} rows={4} required placeholder="Describe the issue or share feedback…" />
+          </label>
+          <button type="submit" className="v-action-btn v-action-btn--primary" disabled={orderActionId === "support-create"}>
+            {orderActionId === "support-create" ? "Sending…" : "Send message to admin"}
+          </button>
+        </form>
+
+        <div className="vendor-support-list">
+          {supportLoading ? (
+            <p className="vendor-orders-message">Loading your support conversations…</p>
+          ) : supportTickets.map((ticket) => (
+            <article className="vendor-support-card" key={ticket._id}>
+              <div className="vendor-support-card-head">
+                <div><strong>{ticket.subject}</strong><small>{ticket.category} · {ticket.status}</small></div>
+                <time>{new Date(ticket.createdAt).toLocaleDateString("en-IN")}</time>
+              </div>
+              <p className="vendor-support-original">{ticket.message}</p>
+              <div className="vendor-support-replies">
+                {(ticket.replies || []).map((reply, index) => (
+                  <div className={`vendor-support-reply is-${reply.sender}`} key={`${ticket._id}-${index}`}>
+                    <strong>{reply.sender === "admin" ? "OzaBay admin" : "You"}</strong>
+                    <p>{reply.message}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="vendor-support-reply-form">
+                <input
+                  value={supportReply[ticket._id] || ""}
+                  onChange={(event) => setSupportReply((current) => ({ ...current, [ticket._id]: event.target.value }))}
+                  maxLength={2000}
+                  aria-label={`Reply to ${ticket.subject}`}
+                  placeholder="Reply to OzaBay admin…"
+                />
+                <button type="button" disabled={orderActionId === `support:${ticket._id}`} onClick={() => submitSupportReply(ticket)}>
+                  Reply
+                </button>
+              </div>
+            </article>
+          ))}
+          {!supportLoading && !supportTickets.length && (
+            <div className="vendor-empty-card"><h3>No support messages yet</h3><p>Send a message above or use email, phone or WhatsApp for direct contact.</p></div>
+          )}
+        </div>
+      </section>
+
+      {/* ── Customer Reviews & Feedback ── */}
+      <section className="vendor-reviews-section" id="vendor-reviews">
+        <div className="vendor-orders-header">
+          <div>
+            <p className="eyebrow">Customer Voice</p>
+            <h2>Product Reviews & Feedback</h2>
+          </div>
+          <button
+            type="button"
+            className="v-action-btn v-action-btn--ghost"
+            onClick={loadReviews}
+            disabled={reviewsLoading}
+          >
+            {reviewsLoading ? "Refreshing…" : "Refresh reviews"}
+          </button>
+        </div>
+        {reviewsLoading ? (
+          <p className="vendor-orders-message">Loading product reviews…</p>
+        ) : reviews.length === 0 ? (
+          <div className="vendor-empty-card"><h3>No reviews yet</h3><p>Customer ratings and feedback for your products will appear here.</p></div>
+        ) : (
+          <div className="vendor-review-list">
+            {reviews.map((review) => (
+              <article className="vendor-review-card" key={review._id}>
+                <div className="vendor-review-head">
+                  <div>
+                    <strong>{review.productName}</strong>
+                    <small>{review.userName} · {new Date(review.createdAt).toLocaleDateString("en-IN")}</small>
+                  </div>
+                  <span className="vendor-review-rating">{review.rating} / 5 ★</span>
+                </div>
+                <p className="vendor-review-feedback">{review.feedback}</p>
+                {review.vendorReply?.message && (
+                  <div className="vendor-review-reply is-vendor">
+                    <strong>Your reply</strong>
+                    <p>{review.vendorReply.message}</p>
+                  </div>
+                )}
+                {review.adminReply?.message && (
+                  <div className="vendor-review-reply is-admin">
+                    <strong>OzaBay support</strong>
+                    <p>{review.adminReply.message}</p>
+                  </div>
+                )}
+                <div className="vendor-review-reply-form">
+                  <input
+                    value={reviewReply[review._id] || ""}
+                    onChange={(event) => setReviewReply((current) => ({ ...current, [review._id]: event.target.value }))}
+                    maxLength={2000}
+                    placeholder={review.vendorReply?.message ? "Update your response…" : "Write a response to this feedback…"}
+                    aria-label={`Reply to review for ${review.productName}`}
+                  />
+                  <button type="button" disabled={orderActionId === `review:${review._id}`} onClick={() => replyToReview(review)}>
+                    {orderActionId === `review:${review._id}` ? "Sending…" : "Send reply"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* ── Vendor Studio Orders ── */}
       <section className="vendor-orders-section" id="vendor-orders">
         <div className="vendor-orders-header" id="vendor-analytics">
@@ -1452,34 +1716,37 @@ export default function VendorDashboard({ account, request }) {
               <div className="vendor-sale-card__items">
                 {order.items.map((item) => (
                   <div className="vendor-sale-card__item" key={item.productId}>
-                    <span>
+                    <div className="vendor-sale-card__item-info">
                       {item.name} × {item.quantity}
                       <small className="vendor-sale-card__item-status">
                         Current status: {item.fulfillmentStatus}
                         {item.deliveredAt && ` · Delivered ${formatUploadDate(item.deliveredAt)}`}
                       </small>
                       {item.fulfillmentStatus !== "Cancelled" && (
-                        <div className="vendor-item-status-actions" aria-label={`Update status for ${item.name}`}>
-                          {VENDOR_FULFILLMENT_STATUSES.map((status) => {
-                            const actionId = `${order._id}:${item.productId}`;
-                            const isUpdating = orderActionId === actionId;
-                            return (
-                              <button
-                                key={status}
-                                type="button"
-                                className={`v-action-btn v-action-btn--ghost${item.fulfillmentStatus === status ? " is-active" : ""}`}
-                                aria-pressed={item.fulfillmentStatus === status}
-                                disabled={isUpdating || item.fulfillmentStatus === status}
-                                onClick={() =>
-                                  updateOrderItemStatus(order._id, item.productId, status)
-                                }
-                              >
-                                {isUpdating && item.fulfillmentStatus !== status
-                                  ? "Updating…"
-                                  : status}
-                              </button>
-                            );
-                          })}
+                        <div className="vendor-item-status-controls">
+                          <small>Update fulfillment:</small>
+                          <div className="vendor-item-status-actions" aria-label={`Update status for ${item.name}`}>
+                            {VENDOR_FULFILLMENT_STATUSES.map((status) => {
+                              const actionId = `${order._id}:${item.productId}`;
+                              const isUpdating = orderActionId === actionId;
+                              return (
+                                <button
+                                  key={status}
+                                  type="button"
+                                  className={`v-action-btn v-action-btn--ghost${item.fulfillmentStatus === status ? " is-active" : ""}`}
+                                  aria-pressed={item.fulfillmentStatus === status}
+                                  disabled={isUpdating || item.fulfillmentStatus === status}
+                                  onClick={() =>
+                                    updateOrderItemStatus(order._id, item.productId, status)
+                                  }
+                                >
+                                  {isUpdating && item.fulfillmentStatus !== status
+                                    ? "Updating…"
+                                    : status}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
                       {order.paymentMethod === "Cash on delivery" && (
@@ -1489,7 +1756,7 @@ export default function VendorDashboard({ account, request }) {
                             {item.cashOnDelivery?.collectedAt
                               && ` · ${formatUploadDate(item.cashOnDelivery.collectedAt)}`}
                           </small>
-                          {["Received", "Crafting", "Shipped", "Delivered"].includes(item.fulfillmentStatus)
+                          {["Received", "Crafting", "Shipped", "Out for delivery", "Delivered"].includes(item.fulfillmentStatus)
                             && item.cashOnDelivery?.status !== "paid" && (
                               <button
                                 type="button"
@@ -1528,7 +1795,7 @@ export default function VendorDashboard({ account, request }) {
                           {item.returnRequest.reason && ` · ${item.returnRequest.reason}`}
                         </small>
                       )}
-                    </span>
+                    </div>
                     <strong>{formatPrice(item.lineTotal)}</strong>
                     {item.returnRequest?.status === "requested" && (
                       <div className="vendor-return-actions">

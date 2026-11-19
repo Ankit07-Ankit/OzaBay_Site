@@ -16,12 +16,26 @@ import {
   updateVendorOrderItemStatus,
   updateVendorOrderStatus,
 } from "../controllers/order.controller.js";
+import {
+  listVendorProductReviews,
+  replyToVendorProductReview,
+} from "../controllers/product-review.controller.js";
+import {
+  createSupportMessage,
+  listSupportMessages,
+  replyToSupportMessage,
+} from "../controllers/support.controller.js";
 
 const vendorRouter = Router();
 
 vendorRouter.use(requireAuth, requireVendor);
 vendorRouter.get("/products", listProducts);
 vendorRouter.get("/orders", listVendorOrders);
+vendorRouter.get("/reviews", listVendorProductReviews);
+vendorRouter.post("/reviews/:reviewId/replies", replyToVendorProductReview);
+vendorRouter.get("/support", listSupportMessages);
+vendorRouter.post("/support", createSupportMessage);
+vendorRouter.post("/support/:ticketId/replies", replyToSupportMessage);
 vendorRouter.patch("/orders/:orderId/status", updateVendorOrderStatus);
 vendorRouter.patch(
   "/orders/:orderId/items/:productId/status",

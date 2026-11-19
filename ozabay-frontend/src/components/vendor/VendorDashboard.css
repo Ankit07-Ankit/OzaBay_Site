@@ -1025,10 +1025,23 @@
   flex-wrap: wrap;
 }
 
-.vendor-sale-card__item > span {
+.vendor-sale-card__item-info {
   display: grid;
   gap: 4px;
   flex: 1 1 220px;
+  min-width: 0;
+}
+
+.vendor-item-status-controls {
+  display: grid;
+  gap: 5px;
+  margin: 5px 0;
+}
+
+.vendor-item-status-controls > small {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .vendor-sale-card__item-status,
@@ -1049,6 +1062,37 @@
   min-height: 30px;
   padding: 5px 9px;
   font-size: 10px;
+}
+
+.vendor-item-status-actions .v-action-btn,
+.vendor-cod-payment .v-action-btn,
+.vendor-return-actions .v-action-btn {
+  border-color: rgba(7, 26, 54, 0.2);
+  background: #f7f4ec;
+  color: var(--navy);
+  letter-spacing: 0.02em;
+}
+
+.vendor-item-status-actions .v-action-btn:hover:not(:disabled),
+.vendor-cod-payment .v-action-btn:hover:not(:disabled),
+.vendor-return-actions .v-action-btn:hover:not(:disabled) {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #fff;
+}
+
+.vendor-item-status-actions .v-action-btn.is-active {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #fff;
+  cursor: default;
+}
+
+.vendor-item-status-actions .v-action-btn:disabled:not(.is-active),
+.vendor-cod-payment .v-action-btn:disabled,
+.vendor-return-actions .v-action-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .vendor-cod-payment {
@@ -1574,4 +1618,305 @@
     flex-direction: column;
     gap: 4px;
   }
+}
+/* Vendor product reviews */
+.vendor-support-section {
+  margin-top: 28px;
+  padding: 24px;
+  border: 1px solid #e6e9ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.vendor-support-direct {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.vendor-support-direct a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 68px;
+  padding: 12px;
+  border: 1px solid #e6e9ef;
+  border-radius: 8px;
+  color: #26364d;
+  text-decoration: none;
+}
+
+.vendor-support-direct a>span {
+  font-size: 22px;
+}
+
+.vendor-support-direct strong,
+.vendor-support-direct small {
+  display: block;
+}
+
+.vendor-support-direct small {
+  margin-top: 3px;
+  color: #8793a3;
+  font-size: 10px;
+}
+
+.vendor-support-form {
+  display: grid;
+  grid-template-columns: minmax(150px, .35fr) 1fr;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 9px;
+  background: #f7f8fa;
+}
+
+.vendor-support-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.vendor-support-form label:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.vendor-support-form select,
+.vendor-support-form input,
+.vendor-support-form textarea {
+  width: 100%;
+  border: 1px solid #dfe4eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #26364d;
+  padding: 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.vendor-support-form textarea {
+  resize: vertical;
+}
+
+.vendor-support-form button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.vendor-support-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.vendor-support-card {
+  border: 1px solid #e6e9ef;
+  border-radius: 9px;
+  padding: 16px;
+}
+
+.vendor-support-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vendor-support-card-head strong {
+  color: #26364d;
+  font-size: 13px;
+}
+
+.vendor-support-card-head small,
+.vendor-support-card-head time {
+  display: block;
+  margin-top: 4px;
+  color: #8793a3;
+  font-size: 10px;
+}
+
+.vendor-support-original {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 7px;
+  background: #f7f8fa;
+  color: #59677a;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.vendor-support-replies {
+  display: grid;
+  gap: 8px;
+}
+
+.vendor-support-reply {
+  max-width: 85%;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: #eef3f8;
+}
+
+.vendor-support-reply.is-admin {
+  justify-self: end;
+  background: #fff7ec;
+}
+
+.vendor-support-reply strong {
+  color: #64748b;
+  font-size: 9px;
+}
+
+.vendor-support-reply p {
+  margin: 3px 0 0;
+  font-size: 11px;
+}
+
+.vendor-support-reply-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.vendor-support-reply-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid #dfe4eb;
+  border-radius: 6px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.vendor-support-reply-form button {
+  border: 0;
+  border-radius: 6px;
+  background: #0c2648;
+  color: #fff;
+  padding: 0 13px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .vendor-support-direct {
+    grid-template-columns: 1fr;
+  }
+
+  .vendor-support-form {
+    grid-template-columns: 1fr;
+  }
+
+  .vendor-support-form label:nth-child(3),
+  .vendor-support-form button {
+    grid-column: 1;
+  }
+}
+.vendor-reviews-section {
+  margin-top: 28px;
+  padding: 24px;
+  border: 1px solid #e6e9ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.vendor-review-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.vendor-review-card {
+  border: 1px solid #e6e9ef;
+  border-radius: 9px;
+  padding: 16px;
+}
+
+.vendor-review-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vendor-review-head strong {
+  color: #102747;
+  font-size: 14px;
+}
+
+.vendor-review-head small {
+  display: block;
+  margin-top: 4px;
+  color: #8793a3;
+  font-size: 10px;
+}
+
+.vendor-review-rating {
+  color: #a47e39;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.vendor-review-feedback {
+  margin: 12px 0;
+  color: #59677a;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.vendor-review-reply {
+  margin-top: 8px;
+  max-width: 85%;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: #eef3f8;
+}
+
+.vendor-review-reply.is-vendor {
+  background: #eef7ee;
+}
+
+.vendor-review-reply strong {
+  color: #64748b;
+  font-size: 9px;
+}
+
+.vendor-review-reply p {
+  margin: 3px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.vendor-review-reply-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.vendor-review-reply-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid #dfe4eb;
+  border-radius: 6px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.vendor-review-reply-form button {
+  border: 0;
+  border-radius: 6px;
+  background: #0c2648;
+  color: #fff;
+  padding: 0 13px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
 }

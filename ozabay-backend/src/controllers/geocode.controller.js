@@ -6,7 +6,9 @@ const geocodeLocation = async (req, res) => {
   const { lat, lng } = req.body;
 
   if (lat === undefined || lat === null || lng === undefined || lng === null) {
-    return res.status(400).json({ message: "Latitude and longitude are required" });
+    return res
+      .status(400)
+      .json({ message: "Latitude and longitude are required" });
   }
 
   const url = new URL(nominatimUrl);
@@ -19,27 +21,34 @@ const geocodeLocation = async (req, res) => {
   try {
     const nominatimResponse = await new Promise((resolve, reject) => {
       let data = "";
-      const request = https.get(url.toString(), {
-        headers: {
-          "User-Agent": "OzaBay/1.0 (https://ozabay.com; support@ozabay.com)",
-          "Accept": "application/json",
+      const request = https.get(
+        url.toString(),
+        {
+          headers: {
+            "User-Agent":
+              "OzaBay/1.0 (https://ozabay.com; supporthttps://www.instagram.com/infinitivecloud/.com)",
+            Accept: "application/json",
+          },
         },
-      }, (response) => {
-        response.on("data", (chunk) => {
-          data += chunk;
-        });
-        response.on("end", () => {
-          try {
-            const result = JSON.parse(data);
-            if (result.error || !result.address) {
-              return reject(new Error(result.error || "Unable to geocode this location"));
+        (response) => {
+          response.on("data", (chunk) => {
+            data += chunk;
+          });
+          response.on("end", () => {
+            try {
+              const result = JSON.parse(data);
+              if (result.error || !result.address) {
+                return reject(
+                  new Error(result.error || "Unable to geocode this location"),
+                );
+              }
+              resolve(result);
+            } catch (error) {
+              reject(error);
             }
-            resolve(result);
-          } catch (error) {
-            reject(error);
-          }
-        });
-      });
+          });
+        },
+      );
       request.on("error", (error) => {
         reject(error);
       });
@@ -50,15 +59,27 @@ const geocodeLocation = async (req, res) => {
 
     const {
       address: {
-        house_number, road, suburb, village, town, city, county, state, postcode, country,
+        house_number,
+        road,
+        suburb,
+        village,
+        town,
+        city,
+        county,
+        state,
+        postcode,
+        country,
       } = {},
     } = nominatimResponse;
 
     return res.json({
       lat,
       lng,
-      fullAddress: `${house_number ? house_number + " " : ""}${road || ""}${suburb ? ", " + suburb : ""}${town ? ", " + town : ""}${city ? ", " + city : ""}${state ? ", " + state : ""}${postcode ? ", " + postcode : ""}${country ? ", " + country : ""}`.trim(),
-      building: house_number ? `${house_number} ${road || ""}` : road || suburb || town || city || country,
+      fullAddress:
+        `${house_number ? house_number + " " : ""}${road || ""}${suburb ? ", " + suburb : ""}${town ? ", " + town : ""}${city ? ", " + city : ""}${state ? ", " + state : ""}${postcode ? ", " + postcode : ""}${country ? ", " + country : ""}`.trim(),
+      building: house_number
+        ? `${house_number} ${road || ""}`
+        : road || suburb || town || city || country,
       area: suburb || village,
       locality: suburb || village,
       city: city || town,

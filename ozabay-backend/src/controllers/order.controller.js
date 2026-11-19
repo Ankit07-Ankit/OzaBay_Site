@@ -9,6 +9,7 @@ import {
 import Order from "../models/order.model.js";
 import User from "../models/user.model.js";
 import VendorProduct from "../models/vendor-product.model.js";
+import sendEmail from "../services/email.service.js";
 
 const checkoutSchema = Joi.object({
   items: Joi.array()
@@ -45,7 +46,7 @@ const verifyPaymentSchema = Joi.object({
 });
 
 const vendorFulfillmentSchema = Joi.object({
-  status: Joi.string().valid("Received", "Crafting", "Shipped", "Delivered", "Cancelled").required(),
+  status: Joi.string().valid("Received", "Crafting", "Shipped", "Out for delivery", "Delivered", "Cancelled").required(),
 });
 
 const returnRequestSchema = Joi.object({
@@ -57,6 +58,103 @@ const vendorReturnDecisionSchema = Joi.object({
 });
 
 const RETURN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const CUSTOMER_EMAIL_FULFILLMENT_STATUSES = [
+  "Received",
+  "Crafting",
+  "Shipped",
+  "Out for delivery",
+  "Delivered",
+];
+
+const escapeHtml = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+
+const formatOrderEmailDate = (date) =>
+  new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "long",
+    timeZone: "Asia/Kolkata",
+  }).format(new Date(date));
+
+const sendOrderNotification = async (order, { subject, heading, message, items }) => {
+  try {
+    const itemLines = items.map((item) =>
+      `${item.name} × ${item.quantity}${item.fulfillmentStatus ? ` — ${item.fulfillmentStatus}` : ""}${item.deliveredAt ? ` — Delivered ${formatOrderEmailDate(item.deliveredAt)}` : ""}`,
+    );
+    const text = [
+      `Hi ${order.customer.name},`,
+      "",
+      message,
+      "",
+      `Order: #${String(order._id).slice(-8).toUpperCase()}`,
+      `Order date: ${formatOrderEmailDate(order.createdAt)}`,
+      ...itemLines,
+      "",
+      `Delivery address: ${[order.customer.address, order.customer.city, order.customer.pincode].filter(Boolean).join(", ")}`,
+      "",
+      "OzaBay",
+    ].join("\n");
+    const itemHtml = items.map((item) => {
+      const deliveryDate = item.deliveredAt
+        ? `<br><small>Delivered ${escapeHtml(formatOrderEmailDate(item.deliveredAt))}</small>`
+        : "";
+      const status = item.fulfillmentStatus
+        ? ` — ${escapeHtml(item.fulfillmentStatus)}`
+        : "";
+      return `<li><strong>${escapeHtml(item.name)}</strong> × ${escapeHtml(item.quantity)}${status}${deliveryDate}</li>`;
+    }).join("");
+    const html = `
+      <div style="font-family:Arial,sans-serif;color:#26364d;line-height:1.6">
+        <h2>${escapeHtml(heading)}</h2>
+        <p>Hi ${escapeHtml(order.customer.name)},</p>
+        <p>${escapeHtml(message)}</p>
+        <p><strong>Order:</strong> #${escapeHtml(String(order._id).slice(-8).toUpperCase())}<br>
+        <strong>Order date:</strong> ${escapeHtml(formatOrderEmailDate(order.createdAt))}</p>
+        <ul>${itemHtml}</ul>
+        <p><strong>Delivery address:</strong> ${escapeHtml(
+          [order.customer.address, order.customer.city, order.customer.pincode]
+            .filter(Boolean)
+            .join(", "),
+        )}</p>
+        <p>OzaBay</p>
+      </div>`;
+    await sendEmail(order.customer.email, subject, text, html);
+  } catch (error) {
+    console.error("Order email notification could not be delivered:", {
+      orderId: String(order?._id || "unknown"),
+      recipient: order?.customer?.email || "unknown",
+      subject,
+      message: error?.message || String(error),
+    });
+  }
+};
+
+const sendOrderPlacedEmail = (order) =>
+  sendOrderNotification(order, {
+    subject: `OzaBay order confirmed — #${String(order._id).slice(-8).toUpperCase()}`,
+    heading: "Your order is confirmed",
+    message: "Thanks for shopping with OzaBay. Your order has been placed. We’ll email you as the vendor updates each product’s progress; the delivery date will be included once it is marked delivered.",
+    items: order.items,
+  });
+
+const sendFulfillmentStatusEmail = (order, items, status) => {
+  if (!CUSTOMER_EMAIL_FULFILLMENT_STATUSES.includes(status)) {
+    return Promise.resolve();
+  }
+  return sendOrderNotification(order, {
+    subject: `OzaBay order update: ${status} — #${String(order._id).slice(-8).toUpperCase()}`,
+    heading: `Your order is ${status.toLowerCase()}`,
+    message: status === "Delivered"
+      ? "Your product has been marked delivered by the vendor. The delivery date is shown below."
+      : `The vendor updated your product status to ${status}.`,
+    items,
+  });
+};
 
 const updateCustomerDeliveryDetails = async (customerId, details) => {
   const result = await User.updateOne(
@@ -215,6 +313,7 @@ const createOrder = async (req, res, next) => {
     }
 
     await order.save();
+    await sendOrderPlacedEmail(order.toObject());
     return res.status(201).json({ order: order.toObject() });
   } catch (error) {
     return next(error);
@@ -308,6 +407,7 @@ const verifyPayment = async (req, res, next) => {
         message: "This order was cancelled before payment confirmation.",
       });
     }
+    await sendOrderPlacedEmail(updatedOrder.toObject());
     return res.status(200).json({ order: updatedOrder });
   } catch (error) {
     return next(error);
@@ -534,6 +634,7 @@ const deriveOrderStatus = (items = [], fallback = "Received") => {
   if (!statuses.length) return fallback;
   if (statuses.every((status) => status === "Delivered")) return "Delivered";
   if (statuses.every((status) => status === "Cancelled")) return "Cancelled";
+  if (statuses.some((status) => status === "Out for delivery")) return "Out for delivery";
   if (statuses.some((status) => status === "Shipped")) return "Shipped";
   if (statuses.some((status) => status === "Crafting")) return "Crafting";
   if (statuses.some((status) => status === "Received")) return "Received";
@@ -597,6 +698,11 @@ const updateVendorOrderStatus = async (req, res, next) => {
     const { status } = await vendorFulfillmentSchema.validateAsync(req.body, {
       abortEarly: true,
     });
+    const previousOrder = await Order.findOne({
+      _id: req.params.orderId,
+      "items.vendorId": req.authUserId,
+      orderStatus: { $nin: ["Awaiting payment", "Payment failed", "Cancelled"] },
+    }).select("items").lean();
     const order = await Order.findOneAndUpdate(
       {
         _id: req.params.orderId,
@@ -673,6 +779,18 @@ const updateVendorOrderStatus = async (req, res, next) => {
         message: "This order was cancelled while its status was being updated.",
       });
     }
+    const previouslyChangedItems = new Map(
+      (previousOrder?.items || []).map((item) => [
+        String(item.productId),
+        item.fulfillmentStatus,
+      ]),
+    );
+    const changedItems = vendorItems.filter(
+      (item) => previouslyChangedItems.get(String(item.productId)) !== status,
+    );
+    if (changedItems.length) {
+      await sendFulfillmentStatusEmail(order.toObject(), changedItems, status);
+    }
     const updated = order.toObject();
     return res.status(200).json({
       message: "Order status updated.",
@@ -712,7 +830,7 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
           $elemMatch: {
             productId,
             vendorId: req.authUserId,
-            fulfillmentStatus: { $ne: "Cancelled" },
+            fulfillmentStatus: { $nin: ["Cancelled", status] },
           },
         },
       },
@@ -724,7 +842,7 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
           {
             "item.productId": productId,
             "item.vendorId": req.authUserId,
-            "item.fulfillmentStatus": { $ne: "Cancelled" },
+            "item.fulfillmentStatus": { $nin: ["Cancelled", status] },
           },
         ],
         new: true,
@@ -774,6 +892,10 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
     const vendorItems = order.items.filter(
       (item) => String(item.vendorId) === String(req.authUserId),
     );
+    const updatedItem = vendorItems.find(
+      (item) => String(item.productId) === String(productId),
+    );
+    await sendFulfillmentStatusEmail(order.toObject(), [updatedItem], status);
     return res.status(200).json({
       message: `Product marked as ${status}.`,
       order: {
@@ -813,7 +935,9 @@ const collectVendorCashOnDelivery = async (req, res, next) => {
           $elemMatch: {
             productId,
             vendorId: req.authUserId,
-            fulfillmentStatus: { $in: ["Received", "Crafting", "Shipped", "Delivered"] },
+            fulfillmentStatus: {
+              $in: ["Received", "Crafting", "Shipped", "Out for delivery", "Delivered"],
+            },
             "cashOnDelivery.status": { $ne: "paid" },
           },
         },
@@ -831,7 +955,7 @@ const collectVendorCashOnDelivery = async (req, res, next) => {
             "item.productId": productId,
             "item.vendorId": req.authUserId,
             "item.fulfillmentStatus": {
-              $in: ["Received", "Crafting", "Shipped", "Delivered"],
+              $in: ["Received", "Crafting", "Shipped", "Out for delivery", "Delivered"],
             },
             "item.cashOnDelivery.status": { $ne: "paid" },
           },
@@ -861,7 +985,7 @@ const collectVendorCashOnDelivery = async (req, res, next) => {
       if (!item) {
         return res.status(404).json({ message: "Product not found for this vendor." });
       }
-      if (!["Received", "Crafting", "Shipped", "Delivered"].includes(item.fulfillmentStatus)) {
+      if (!["Received", "Crafting", "Shipped", "Out for delivery", "Delivered"].includes(item.fulfillmentStatus)) {
         return res.status(409).json({
           message: "Mark this product as received before recording COD collection.",
         });

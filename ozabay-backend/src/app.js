@@ -7,6 +7,7 @@ import productRouter from "./routes/product.routes.js";
 import userProductRouter from "./routes/user-product.routes.js";
 import geocodeRouter from "./routes/geocode.routes.js";
 import adminRouter from "./routes/admin.routes.js";
+import supportRouter from "./routes/support.routes.js";
 import cookieParser from "cookie-parser";
 import { getVendorProductUploadDirectory } from "./middleware/vendor-product-upload.js";
 
@@ -31,6 +32,7 @@ app.use("/api/me/products", userProductRouter);
 app.use("/api/vendor", vendorRouter);
 app.use("/api/geocode", geocodeRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/support", supportRouter);
 
 app.get("/", (req, res) => {
   res.send("Hello World!");

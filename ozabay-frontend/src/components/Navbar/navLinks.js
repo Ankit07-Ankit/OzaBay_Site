@@ -17,4 +17,5 @@ export const VENDOR_NAV_LINKS = [
   { id: "locations",   label: "Shop Locations", href: "#vendor-locations" },
   { id: "analytics",   label: "Analytics",      href: "#vendor-analytics" },
   { id: "orders",      label: "Orders & Sales", href: "#vendor-orders" },
+  { id: "vendor-support", label: "Support", href: "#vendor-support" },
 ];
