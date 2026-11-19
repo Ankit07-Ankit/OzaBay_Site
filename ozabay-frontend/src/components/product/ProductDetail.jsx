@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { VIDEOS } from "../../data/assets.js";
+import { apiUrl } from "../../utils/api.js";
 
 export default function ProductDetail({
   product,
@@ -17,7 +18,7 @@ export default function ProductDetail({
   const [reviewSummary, setReviewSummary] = useState({ averageRating: 0, reviewCount: 0 });
   const [reviewError, setReviewError] = useState("");
   const [reviewsLoading, setReviewsLoading] = useState(true);
-  const images = Array.isArray(product.images) ? product.images : [];
+  const images = Array.isArray(product.images) ? product.images.map(apiUrl) : [];
   const uploadedMedia = product.vendorProduct
     && (images.length > 0 || Boolean(product.video));
   const gallery = images.length > 1 ? images.slice(1) : null;
@@ -31,7 +32,7 @@ export default function ProductDetail({
     let active = true;
     setReviewsLoading(true);
     setReviewError("");
-    fetch(`/api/products/${encodeURIComponent(product.id)}/reviews`)
+    fetch(apiUrl(`/api/products/${encodeURIComponent(product.id)}/reviews`))
       .then(async (response) => {
         const result = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(result.message || "Unable to load product reviews.");
@@ -73,7 +74,7 @@ export default function ProductDetail({
             {isVideoSelected ? (
               <video
                 key={product.video}
-                src={product.video}
+                src={apiUrl(product.video)}
                 controls
                 playsInline
                 preload="metadata"
@@ -81,7 +82,7 @@ export default function ProductDetail({
               />
             ) : (
               <img
-                src={uploadedMedia ? images[Number(selectedMedia.split(":")[1])] || product.image : product.image}
+                src={uploadedMedia ? images[Number(selectedMedia.split(":")[1])] || apiUrl(product.image) : apiUrl(product.image)}
                 alt={product.name}
                 style={{ transform: `scale(${zoom})` }}
               />
@@ -151,10 +152,10 @@ export default function ProductDetail({
             </div>
           ) : (
             <div className="pdp-media-row">
-              <img src={product.image} alt="Product detail" />
+              <img src={apiUrl(product.image)} alt="Product detail" />
               {["Bangles", "Blades", "Pendants"].includes(product.category) ? (
                 <img
-                  src={product.galleryImage || product.image}
+                  src={apiUrl(product.galleryImage || product.image)}
                   alt={`${product.name} second view`}
                 />
               ) : (
@@ -164,7 +165,7 @@ export default function ProductDetail({
                   muted
                   loop
                   playsInline
-                  poster={product.image}
+                  poster={apiUrl(product.image)}
                 />
               )}
             </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { apiUrl } from "../../utils/api.js";
 import "./GoogleAuthButton.css";
 
 let googleScriptPromise;
@@ -37,7 +38,7 @@ export default function GoogleAuthButton({ onAuthenticated, mode = "signin" }) {
       setError("");
       setIsSubmitting(true);
       try {
-        const response = await fetch("/api/auth/google", {
+        const response = await fetch(apiUrl("/api/auth/google"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -58,7 +59,7 @@ export default function GoogleAuthButton({ onAuthenticated, mode = "signin" }) {
       }
     };
 
-    fetch("/api/auth/google/client-id")
+    fetch(apiUrl("/api/auth/google/client-id"))
       .then(async (response) => {
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.clientId) {

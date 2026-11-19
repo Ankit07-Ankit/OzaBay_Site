@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import morgan from "morgan";
 import authRouter from "./routes/auth.routes.js";
 import orderRouter from "./routes/order.routes.js";
@@ -12,6 +13,26 @@ import cookieParser from "cookie-parser";
 import { getVendorProductUploadDirectory } from "./middleware/vendor-product-upload.js";
 
 const app = express();
+const frontendOrigins = [
+  "https://ozabay.com",
+  "https://www.ozabay.com",
+  ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173"]),
+  ...(process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean),
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || frontendOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(morgan("dev"));
 app.use(cookieParser());

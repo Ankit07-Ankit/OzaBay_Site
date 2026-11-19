@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { money } from "../../utils/formatCurrency.js";
+import { apiUrl } from "../../utils/api.js";
 import "./AccountSection.css";
 
 function passwordScore(value) {
@@ -542,7 +543,7 @@ export default function AccountSection({
 
       const { latitude, longitude } = position.coords;
 
-      const response = await fetch("/api/geocode", {
+      const response = await fetch(apiUrl("/api/geocode"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lat: latitude, lng: longitude }),

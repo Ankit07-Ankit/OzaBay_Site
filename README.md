@@ -1,5 +1,16 @@
 # OzaBay_Site
 
+## Local frontend and backend
+
+The frontend uses relative `/api` and `/uploads` URLs. During local development, Vite proxies both paths to the backend at `http://localhost:3000`; the backend defaults to port `3000`.
+
+1. Configure the backend environment in `ozabay-backend/.env`, including its database connection.
+2. In one terminal, run `cd ozabay-backend && npm run dev`.
+3. In another terminal, run `cd ozabay-frontend && npm run dev`.
+4. Open the local URL printed by Vite (typically `http://localhost:5173`).
+
+Set `VITE_API_BASE_URL` only when intentionally using a separate API origin. The backend allows `http://localhost:5173` as a development origin. Production auth cookies require HTTPS.
+
 ## Super admin access
 
 The admin console is available at `/admin-login`; it is separate from customer and vendor accounts. Configure these values in `ozabay-backend/.env` before signing in:

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import GoogleAuthButton from "./GoogleAuthButton.jsx";
+import { apiUrl } from "../../utils/api.js";
 import "./SignUp.css";
 
 async function readResponse(response) {
@@ -40,7 +41,7 @@ export default function SignUp({ onSignUp, onSignIn, initialAccountType = "user"
     setIsSubmitting(true);
     try {
       await readResponse(
-        await fetch("/api/auth/register", {
+        await fetch(apiUrl("/api/auth/register"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(registerData),
@@ -60,7 +61,7 @@ export default function SignUp({ onSignUp, onSignIn, initialAccountType = "user"
     setIsSubmitting(true);
     try {
       await readResponse(
-        await fetch("/api/auth/verify-email", {
+        await fetch(apiUrl("/api/auth/verify-email"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -70,7 +71,7 @@ export default function SignUp({ onSignUp, onSignIn, initialAccountType = "user"
         }),
       );
       const loginResult = await readResponse(
-        await fetch("/api/auth/login", {
+        await fetch(apiUrl("/api/auth/login"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",

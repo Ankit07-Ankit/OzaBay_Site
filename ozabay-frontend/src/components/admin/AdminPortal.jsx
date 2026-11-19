@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { apiUrl } from "../../utils/api.js";
 import "./AdminPortal.css";
 
 const ADMIN_API = "/api/admin";
@@ -48,10 +49,10 @@ function AdminLogin() {
     setLoading(true);
     try {
       await readResponse(
-        await fetch(`${ADMIN_API}/login`, {
+        await fetch(apiUrl(`${ADMIN_API}/login`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
+          credentials: "include",
           body: JSON.stringify({ email, password }),
         }),
       );
@@ -124,9 +125,9 @@ function AdminDashboard() {
   const [reloadId, setReloadId] = useState(0);
 
   const request = useCallback(async (path, options = {}) => {
-    const response = await fetch(`${ADMIN_API}${path}`, {
+    const response = await fetch(apiUrl(`${ADMIN_API}${path}`), {
       ...options,
-      credentials: "same-origin",
+      credentials: "include",
       headers: {
         ...(options.body ? { "Content-Type": "application/json" } : {}),
         ...options.headers,
@@ -550,7 +551,7 @@ function AdminDashboard() {
                     {products.map((product) => (
                       <tr key={product._id}>
                         <td className="admin-product-cell">
-                          {product.images?.[0] && <img src={product.images[0]} alt="" />}
+                          {product.images?.[0] && <img src={apiUrl(product.images[0])} alt="" />}
                           <div><strong>{product.name}</strong><small>{product.category}</small></div>
                         </td>
                         <td>

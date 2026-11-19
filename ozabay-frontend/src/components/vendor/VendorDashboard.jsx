@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { apiUrl } from "../../utils/api.js";
 import "./VendorDashboard.css";
 
 const emptyProduct = {
@@ -61,10 +62,12 @@ const formatPrice = (price) =>
   }).format(price);
 
 const formatUploadDate = (date) =>
-  new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(date));
+  Number.isNaN(new Date(date).getTime())
+    ? "Date unavailable"
+    : new Intl.DateTimeFormat("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(date));
 
 const formatPaymentLabel = (value) =>
   value ? value.replaceAll("_", " ") : "";
@@ -80,6 +83,7 @@ export default function VendorDashboard({ account, request }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [productsError, setProductsError] = useState("");
   const [saving, setSaving] = useState(false);
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
@@ -120,12 +124,15 @@ export default function VendorDashboard({ account, request }) {
 
   const loadProducts = async () => {
     setLoading(true);
-    setError("");
+    setProductsError("");
     try {
       const result = await request("/products");
-      setProducts(result.products || []);
+      if (!Array.isArray(result.products)) {
+        throw new Error("The product list response was invalid. Please try again.");
+      }
+      setProducts(result.products.filter((product) => product && product._id));
     } catch (requestError) {
-      setError(requestError.message);
+      setProductsError(requestError.message || "Unable to load your registered products.");
     } finally {
       setLoading(false);
     }
@@ -474,6 +481,7 @@ export default function VendorDashboard({ account, request }) {
           ? current.map((product) => (product._id === result.product._id ? result.product : product))
           : [result.product, ...current],
       );
+      setProductsError("");
       setNotice(editingProduct ? "Product successfully updated!" : "Product registered and live on marketplace!");
       resetForm();
     } catch (requestError) {
@@ -648,7 +656,9 @@ export default function VendorDashboard({ account, request }) {
     const totalPieces = products.length;
     const categoriesSet = new Set(products.map((p) => p.category?.trim()).filter(Boolean));
     const totalValuation = products.reduce((sum, p) => {
-      const discounted = p.price * (1 - (p.discountPercent || 0) / 100);
+      const price = Number(p.price) || 0;
+      const discountPercent = Number(p.discountPercent) || 0;
+      const discounted = price * (1 - discountPercent / 100);
       return sum + discounted;
     }, 0);
     const activeOffers = products.filter((p) => (p.discountPercent && p.discountPercent > 0) || p.offer).length;
@@ -667,8 +677,8 @@ export default function VendorDashboard({ account, request }) {
     return products.filter((p) => {
       const matchesSearch =
         !searchQuery ||
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.category.toLowerCase().includes(searchQuery.toLowerCase());
+        String(p.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(p.category || "").toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCat =
         selectedCategoryFilter === "All" || p.category === selectedCategoryFilter;
       return matchesSearch && matchesCat;
@@ -948,7 +958,7 @@ export default function VendorDashboard({ account, request }) {
               <div className="vendor-media-preview">
                 {retainedImages.map((image, idx) => (
                   <div key={image} className="v-preview-item">
-                    <img src={image} alt="Current product" />
+                    <img src={apiUrl(image)} alt="Current product" />
                     {idx === 0 && <span className="v-preview-cover-tag">Cover</span>}
                     <button
                       type="button"
@@ -1000,7 +1010,7 @@ export default function VendorDashboard({ account, request }) {
             {(retainedVideo || newVideo) && (
               <div className="v-video-preview">
                 <video
-                  src={newVideo ? newVideo.preview : retainedVideo}
+                  src={newVideo ? newVideo.preview : apiUrl(retainedVideo)}
                   controls
                   preload="metadata"
                 />
@@ -1039,19 +1049,31 @@ export default function VendorDashboard({ account, request }) {
         <section className="vendor-product-list" id="vendor-product-list">
           <div className="vendor-product-list__heading">
             <div>
-              <p className="eyebrow">Studio Inventory</p>
-              <h2>Your registered pieces.</h2>
+              <p className="eyebrow">Your catalogue</p>
+              <h2>Registered products</h2>
+              <p className="vendor-product-list__intro">Manage product details, pricing and photos shown in your marketplace listings.</p>
             </div>
-            <span className="v-count-pill">{products.length} registered</span>
+            <div className="vendor-product-list__heading-actions">
+              <span className="v-count-pill">{products.length} {products.length === 1 ? "product" : "products"}</span>
+              <button
+                type="button"
+                className="vendor-products-refresh"
+                onClick={loadProducts}
+                disabled={loading}
+              >
+                {loading ? "Refreshing…" : "↻ Refresh"}
+              </button>
+            </div>
           </div>
 
           {/* Filter and Search Bar */}
           <div className="vendor-list-toolbar">
             <div className="v-search-box">
-              <span>🔍</span>
+              <span aria-hidden="true">⌕</span>
               <input
-                type="text"
-                placeholder="Search your listings..."
+                type="search"
+                aria-label="Search registered products"
+                placeholder="Search by product name or category"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -1074,21 +1096,38 @@ export default function VendorDashboard({ account, request }) {
                 </button>
               ))}
             </div>
+            {!loading && !productsError && (
+              <p className="vendor-products-result-count" aria-live="polite">
+                Showing <strong>{filteredProducts.length}</strong> of <strong>{products.length}</strong> products
+              </p>
+            )}
           </div>
 
-          {loading ? (
+          {productsError ? (
+            <div className="vendor-products-error" role="alert">
+              <span className="vendor-products-error__icon" aria-hidden="true">!</span>
+              <div>
+                <strong>We couldn’t load your products</strong>
+                <p>{productsError}</p>
+                <button type="button" className="vendor-products-refresh" onClick={loadProducts} disabled={loading}>
+                  Try again
+                </button>
+              </div>
+            </div>
+          ) : loading ? (
             <div className="vendor-loading-state">
               <div className="catalog-loading__spinner" />
-              <p>Fetching your studio catalogue…</p>
+              <strong>Loading your products</strong>
+              <p>This may take a moment while we connect to the marketplace.</p>
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="vendor-empty-card">
-              <span className="vendor-empty-card__icon">🏺</span>
-              <h3>No pieces found</h3>
+              <span className="vendor-empty-card__icon" aria-hidden="true">◇</span>
+              <h3>{products.length === 0 ? "Your catalogue is ready" : "No matching products"}</h3>
               <p>
                 {products.length === 0
-                  ? "Your studio catalogue is currently empty. Use the registration form to add your first handcrafted work."
-                  : "No pieces match your search or category filter."}
+                  ? "You haven’t registered a product yet. Use the product form to add your first listing."
+                  : "Try another search or category, or clear the filters to see all your products."}
               </p>
               {products.length > 0 && (
                 <button
@@ -1099,48 +1138,66 @@ export default function VendorDashboard({ account, request }) {
                     setSelectedCategoryFilter("All");
                   }}
                 >
-                  Reset filters ↗
+                  Clear search and filters
                 </button>
               )}
             </div>
           ) : (
             <div className="vendor-product-list__items">
               {filteredProducts.map((product) => {
-                const discountedPrice = product.price * (1 - (product.discountPercent || 0) / 100);
+                const productImages = Array.isArray(product.images) ? product.images.filter(Boolean) : [];
+                const price = Number(product.price) || 0;
+                const discountPercent = Number(product.discountPercent) || 0;
+                const discountedPrice = price * (1 - discountPercent / 100);
                 return (
                   <article className="vendor-product-card" key={product._id}>
                     <div className="vendor-product-card__media">
-                      <img src={product.images[0]} alt={product.name} />
-                      {product.discountPercent > 0 && (
-                        <span className="v-badge-discount">{product.discountPercent}% OFF</span>
+                      <div className="vendor-product-card__image-placeholder" aria-hidden="true">◇</div>
+                      {productImages[0] && (
+                        <img
+                          src={apiUrl(productImages[0])}
+                          alt={product.name || "Product"}
+                          loading="lazy"
+                          onError={(event) => { event.currentTarget.hidden = true; }}
+                        />
+                      )}
+                      {discountPercent > 0 && (
+                        <span className="v-badge-discount">{discountPercent}% OFF</span>
                       )}
                       {product.video && <span className="v-badge-video" title="Includes process video">🎬 Video</span>}
                     </div>
 
                     <div className="vendor-product-card__details">
                       <div className="vendor-product-card__top">
-                        <span className="v-card-category">{product.category}</span>
+                        <span className="v-card-category">{product.category || "Uncategorized"}</span>
                         <time className="vendor-product-card__uploaded" dateTime={product.createdAt}>
                           {formatUploadDate(product.createdAt)}
                         </time>
                       </div>
 
-                      <h3>{product.name}</h3>
-                      <p className="v-card-desc">{product.description}</p>
+                      <h3>{product.name || "Untitled product"}</h3>
+                      <p className="v-card-desc">{product.description || "No product description has been added."}</p>
 
                       <div className="vendor-product-card__price-row">
                         <div className="vendor-product-card__price">
                           <strong>{formatPrice(discountedPrice)}</strong>
-                          {product.discountPercent > 0 && <del>{formatPrice(product.price)}</del>}
+                          {discountPercent > 0 && <del>{formatPrice(price)}</del>}
                         </div>
-                        {product.offer && <span className="v-offer-pill">{product.offer}</span>}
+                        {product.offer && <span className="v-offer-pill">Offer · {product.offer}</span>}
                       </div>
 
-                      {product.images.length > 1 && (
+                      {productImages.length > 1 && (
                         <div className="vendor-product-card__gallery">
-                          {product.images.map((image, index) => (
-                            <img key={image} src={image} alt={`${product.name} thumbnail ${index + 1}`} />
+                          {productImages.slice(1).map((image, index) => (
+                            <img
+                              key={image}
+                              src={apiUrl(image)}
+                              alt={`${product.name || "Product"} photo ${index + 2}`}
+                              loading="lazy"
+                              onError={(event) => { event.currentTarget.hidden = true; }}
+                            />
                           ))}
+                          <span>{productImages.length} photos</span>
                         </div>
                       )}
 
@@ -1150,14 +1207,14 @@ export default function VendorDashboard({ account, request }) {
                           className="v-card-action-btn v-card-action-btn--edit"
                           onClick={() => startEditing(product)}
                         >
-                          ✎ Edit Listing
+                          Edit product
                         </button>
                         <button
                           type="button"
                           className="v-card-action-btn v-card-action-btn--delete"
                           onClick={() => removeProduct(product)}
                         >
-                          ✕ Delete
+                          Delete
                         </button>
                       </div>
                     </div>

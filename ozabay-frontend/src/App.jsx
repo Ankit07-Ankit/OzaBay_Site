@@ -26,6 +26,7 @@ import { INDIA_CRAFTS } from "./data/regionalCrafts.js";
 import { REGIONAL_CRAFT_PRODUCTS } from "./data/regionalCraftProducts.js";
 import { ARTISANS, COLLECTIONS, CUSTOM_PRICES } from "./data/siteContent.js";
 import { money } from "./utils/formatCurrency.js";
+import { apiUrl } from "./utils/api.js";
 import "./index.css";
 import "./premium-upgrades.css";
 
@@ -877,7 +878,7 @@ export default function App() {
     if (vendorRoute) return;
     let cancelled = false;
     setRegisteredProductsError("");
-    fetch("/api/products")
+    fetch(apiUrl("/api/products"))
       .then(async (response) => {
         const result = await response.json().catch(() => ({}));
         if (!response.ok)
@@ -897,9 +898,9 @@ export default function App() {
               category: product.category,
               priceValue,
               price: money(priceValue),
-              image: product.images[0],
-              images: product.images,
-              video: product.video,
+              image: apiUrl(product.images[0]),
+              images: product.images.map(apiUrl),
+              video: product.video ? apiUrl(product.video) : "",
               createdAt: product.createdAt,
               description: product.description,
               story: product.description,
@@ -953,7 +954,7 @@ export default function App() {
       chunks.map(async (products) => {
         const productIds = products.map((product) => product.id).join(",");
         const response = await fetch(
-          `/api/products/reviews/summary?productIds=${encodeURIComponent(productIds)}`,
+          apiUrl(`/api/products/reviews/summary?productIds=${encodeURIComponent(productIds)}`),
         );
         const result = await response.json().catch(() => ({}));
         if (!response.ok)
@@ -1228,7 +1229,7 @@ export default function App() {
   };
   const signUp = (data) => finishAuthentication(data);
   const signIn = async (credentials) => {
-    const response = await fetch("/api/auth/login", {
+    const response = await fetch(apiUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -1240,7 +1241,7 @@ export default function App() {
     finishAuthentication({ ...result.user, accessToken: result.accessToken });
   };
   const requestPasswordReset = async (email) => {
-    const response = await fetch("/api/auth/forgot-password", {
+    const response = await fetch(apiUrl("/api/auth/forgot-password"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
@@ -1253,7 +1254,7 @@ export default function App() {
     return result;
   };
   const resetPassword = async (data) => {
-    const response = await fetch("/api/auth/reset-password", {
+    const response = await fetch(apiUrl("/api/auth/reset-password"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -1268,7 +1269,7 @@ export default function App() {
   const refreshAccessToken = () => {
     if (!refreshAccessTokenPromise) {
       refreshAccessTokenPromise = (async () => {
-        const response = await fetch("/api/auth/refresh-token", {
+        const response = await fetch(apiUrl("/api/auth/refresh-token"), {
           method: "GET",
           credentials: "include",
         });
@@ -1402,7 +1403,7 @@ export default function App() {
     let token = accessToken || sessionStorage.getItem("ozabay-access-token");
     if (!token) token = await refreshAccessToken();
     const send = (authToken) =>
-      fetch(`/api/vendor${path}`, {
+      fetch(apiUrl(`/api/vendor${path}`), {
         ...options,
         headers: { ...options.headers, Authorization: `Bearer ${authToken}` },
       });
@@ -1422,7 +1423,7 @@ export default function App() {
     let token = accessToken || sessionStorage.getItem("ozabay-access-token");
     if (!token) token = await refreshAccessToken();
     const send = (authToken) =>
-      fetch(`/api${path}`, {
+      fetch(apiUrl(`/api${path}`), {
         ...options,
         headers: {
           ...options.headers,
@@ -1554,7 +1555,7 @@ export default function App() {
     let token = accessToken || sessionStorage.getItem("ozabay-access-token");
     if (!token) token = await refreshAccessToken();
     const send = (authToken) =>
-      fetch("/api/auth/profile", {
+      fetch(apiUrl("/api/auth/profile"), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -1601,7 +1602,7 @@ export default function App() {
     }));
   };
   const logout = async () => {
-    const response = await fetch("/api/auth/logout", {
+    const response = await fetch(apiUrl("/api/auth/logout"), {
       method: "GET",
       credentials: "include",
     });
