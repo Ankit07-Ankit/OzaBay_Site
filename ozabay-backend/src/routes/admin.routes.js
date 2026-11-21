@@ -5,6 +5,7 @@ import {
   deleteAccount,
   deleteProduct,
   getSummary,
+  getSupportUnreadCount,
   listAccounts,
   listOrders,
   listProducts,
@@ -32,6 +33,7 @@ adminRouter.patch("/accounts/:accountId/status", updateAccountStatus);
 adminRouter.delete("/accounts/:accountId", deleteAccount);
 adminRouter.get("/products", listProducts);
 adminRouter.delete("/products/:productId", deleteProduct);
+adminRouter.get("/support/unread-count", getSupportUnreadCount);
 adminRouter.get("/support", listSupportMessages);
 adminRouter.post("/support/:ticketId/replies", replyToSupportMessage);
 adminRouter.delete("/support/:ticketId", deleteSupportMessage);

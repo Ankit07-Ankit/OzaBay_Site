@@ -97,6 +97,7 @@ export default function VendorDashboard({ account, request }) {
   const [reviewReply, setReviewReply] = useState({});
   const [supportTickets, setSupportTickets] = useState([]);
   const [supportLoading, setSupportLoading] = useState(true);
+  const [supportUnreadCount, setSupportUnreadCount] = useState(0);
   const [supportCategory, setSupportCategory] = useState("Vendor");
   const [supportSubject, setSupportSubject] = useState("");
   const [supportText, setSupportText] = useState("");
@@ -124,6 +125,8 @@ export default function VendorDashboard({ account, request }) {
   const [customCategoryInput, setCustomCategoryInput] = useState("");
 
   const previewUrls = useRef(new Set());
+  const supportSectionRef = useRef(null);
+  const supportSectionVisibleRef = useRef(false);
 
   const loadProducts = async () => {
     setLoading(true);
@@ -167,16 +170,32 @@ export default function VendorDashboard({ account, request }) {
     }
   };
 
-  const loadSupportMessages = async () => {
+  const loadSupportMessages = async (markRead = false) => {
     setSupportLoading(true);
     try {
-      const result = await request("/support");
+      const result = await request(`/support${markRead ? "?markRead=true" : ""}`);
       setSupportTickets(result.tickets || []);
+      if (markRead) setSupportUnreadCount(0);
+      return true;
     } catch (requestError) {
       setOrdersError(requestError.message || "Unable to load support messages.");
+      return false;
     } finally {
       setSupportLoading(false);
     }
+  };
+
+  const refreshSupportUnreadCount = async () => {
+    try {
+      const result = await request("/support/unread-count");
+      setSupportUnreadCount(Number(result.unreadCount) || 0);
+    } catch (requestError) {
+      console.warn("Unable to refresh support notifications:", requestError.message);
+    }
+  };
+
+  const refreshVendorSupport = async () => {
+    await loadSupportMessages(true);
   };
 
   const submitSupportMessage = async (event) => {
@@ -398,7 +417,45 @@ export default function VendorDashboard({ account, request }) {
     loadOrders();
     loadReviews();
     loadSupportMessages();
+    refreshSupportUnreadCount();
   }, []);
+
+  useEffect(() => {
+    const refreshSupportNotifications = () => {
+      if (supportSectionVisibleRef.current) loadSupportMessages(true);
+      else refreshSupportUnreadCount();
+    };
+    const interval = window.setInterval(refreshSupportNotifications, 30000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshSupportNotifications();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [request]);
+
+  useEffect(() => {
+    const section = supportSectionRef.current;
+    if (!section || typeof IntersectionObserver === "undefined") return undefined;
+    let wasVisible = false;
+    const observer = new IntersectionObserver((entries) => {
+      const isVisible = entries.some((entry) => entry.isIntersecting);
+      supportSectionVisibleRef.current = isVisible;
+      if (isVisible && !wasVisible) {
+        wasVisible = true;
+        loadSupportMessages(true);
+      } else if (!isVisible) {
+        wasVisible = false;
+      }
+    }, { threshold: 0.15 });
+    observer.observe(section);
+    return () => {
+      supportSectionVisibleRef.current = false;
+      observer.disconnect();
+    };
+  }, [request, account?._id]);
 
   useEffect(() => () => {
     previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
@@ -1701,20 +1758,27 @@ export default function VendorDashboard({ account, request }) {
       </section>
 
       {/* ── Vendor Support & Admin Contact ── */}
-      <section className="vendor-support-section" id="vendor-support">
+      <section className="vendor-support-section" id="vendor-support" ref={supportSectionRef}>
         <div className="vendor-orders-header">
           <div>
             <p className="eyebrow">Maker Concierge</p>
             <h2>Vendor Support & Admin Help</h2>
           </div>
-          <button
-            type="button"
-            className="v-action-btn v-action-btn--ghost"
-            onClick={loadSupportMessages}
-            disabled={supportLoading}
-          >
-            {supportLoading ? "Refreshing…" : "Refresh messages"}
-          </button>
+          <div className="vendor-support-header-actions">
+            {supportUnreadCount > 0 && (
+              <span className="vendor-support-unread" role="status">
+                {supportUnreadCount} unread {supportUnreadCount === 1 ? "conversation" : "conversations"}
+              </span>
+            )}
+            <button
+              type="button"
+              className="v-action-btn v-action-btn--ghost"
+              onClick={refreshVendorSupport}
+              disabled={supportLoading}
+            >
+              {supportLoading ? "Refreshing…" : "Refresh messages"}
+            </button>
+          </div>
         </div>
 
         <div className="vendor-support-direct">
@@ -1760,7 +1824,11 @@ export default function VendorDashboard({ account, request }) {
           ) : supportTickets.map((ticket) => (
             <article className="vendor-support-card" key={ticket._id}>
               <div className="vendor-support-card-head">
-                <div><strong>{ticket.subject}</strong><small>{ticket.category} · {ticket.status}</small></div>
+                <div>
+                  <strong>{ticket.subject}</strong>
+                  <small>{ticket.category} · {ticket.status}</small>
+                  {ticket.hasUnread && <span className="vendor-support-new">New message</span>}
+                </div>
                 <time>{new Date(ticket.createdAt).toLocaleDateString("en-IN")}</time>
               </div>
               <p className="vendor-support-original">{ticket.message}</p>

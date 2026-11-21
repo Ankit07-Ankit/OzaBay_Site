@@ -109,6 +109,7 @@ function AdminDashboard() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [supportTickets, setSupportTickets] = useState([]);
+  const [supportUnreadCount, setSupportUnreadCount] = useState(0);
   const [reviews, setReviews] = useState([]);
   const [reviewReply, setReviewReply] = useState({});
   const [supportReply, setSupportReply] = useState({});
@@ -153,6 +154,28 @@ function AdminDashboard() {
 
   useEffect(() => {
     let active = true;
+    const refreshSupportUnreadCount = () => {
+      request("/support/unread-count")
+        .then((result) => {
+          if (active) setSupportUnreadCount(Number(result.unreadCount) || 0);
+        })
+        .catch(() => {});
+    };
+    refreshSupportUnreadCount();
+    const interval = window.setInterval(refreshSupportUnreadCount, 30000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshSupportUnreadCount();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [request]);
+
+  useEffect(() => {
+    let active = true;
     setLoading(true);
     setError("");
     const params = new URLSearchParams({
@@ -168,7 +191,10 @@ function AdminDashboard() {
         if (tab === "accounts") setAccounts(result.accounts);
         else if (tab === "products") setProducts(result.products);
         else if (tab === "orders") setOrders(result.orders);
-        else if (tab === "support") setSupportTickets(result.tickets || []);
+        else if (tab === "support") {
+          setSupportTickets(result.tickets || []);
+          setSupportUnreadCount(0);
+        }
         else if (tab === "reviews") setReviews(result.reviews || []);
         setPagination(result.pagination || { page: 1, pages: 1, total: (result.tickets || []).length });
       })
@@ -180,6 +206,25 @@ function AdminDashboard() {
       });
     return () => { active = false; };
   }, [accountType, page, productSort, reloadId, request, search, tab]);
+
+  useEffect(() => {
+    if (tab !== "support") return undefined;
+    let active = true;
+    const refreshSupportTickets = () => {
+      request("/support")
+        .then((result) => {
+          if (!active) return;
+          setSupportTickets(result.tickets || []);
+          setSupportUnreadCount(0);
+        })
+        .catch(() => {});
+    };
+    const interval = window.setInterval(refreshSupportTickets, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [request, tab]);
 
   const setSearchTerm = (event) => {
     event.preventDefault();
@@ -367,6 +412,11 @@ function AdminDashboard() {
           onClick={() => { setTab("support"); setPage(1); }}
         >
           <span aria-hidden="true">✉</span> Support & feedback
+          {supportUnreadCount > 0 && (
+            <em className="admin-nav-badge" aria-label={`${supportUnreadCount} unread support conversations`}>
+              {supportUnreadCount}
+            </em>
+          )}
         </button>
         <button
           className={`admin-nav-item ${tab === "reviews" ? "is-current" : ""}`}
@@ -624,7 +674,10 @@ function AdminDashboard() {
                         <strong>{ticket.subject}</strong>
                         <small>{ticket.userName} · {ticket.userEmail} · {ticket.category}</small>
                       </div>
-                      <span className="admin-status status-active">{ticket.status}</span>
+                      <div className="admin-support-indicators">
+                        {ticket.hasUnread && <span className="admin-support-new">New message</span>}
+                        <span className="admin-status status-active">{ticket.status}</span>
+                      </div>
                     </div>
                     <p className="admin-support-original">{ticket.message}</p>
                     <div className="admin-support-replies">

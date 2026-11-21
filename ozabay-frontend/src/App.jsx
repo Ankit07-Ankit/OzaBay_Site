@@ -1554,8 +1554,10 @@ export default function App() {
     );
     return result;
   };
-  const listSupportMessages = () =>
-    requestAuthenticatedApi("/support");
+  const listSupportMessages = ({ markRead = false } = {}) =>
+    requestAuthenticatedApi(`/support${markRead ? "?markRead=true" : ""}`);
+  const getSupportUnreadCount = () =>
+    requestAuthenticatedApi("/support/unread-count");
   const createSupportMessage = (payload) =>
     requestAuthenticatedApi("/support", {
       method: "POST",
@@ -3291,6 +3293,7 @@ export default function App() {
                       onRequestOrderItemCancellation={requestOrderItemCancellation}
                       onRefreshOrders={() => customerOrdersRefreshRef.current?.()}
                       onListSupportMessages={listSupportMessages}
+                      onGetSupportUnreadCount={getSupportUnreadCount}
                       onCreateSupportMessage={createSupportMessage}
                       onReplySupportMessage={replySupportMessage}
                     />

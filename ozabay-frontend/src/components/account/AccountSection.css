@@ -33,6 +33,7 @@
 .account-section__tab:focus-visible{outline:2px solid var(--acc-gold);outline-offset:-2px;border-radius:2px}
 .account-section__tab-count{font:700 9px/1 var(--sans);font-style:normal;min-width:20px;height:20px;padding:0 6px;display:grid;place-items:center;border-radius:10px;background:rgba(7,26,54,.04);color:var(--deep);transition:background .3s var(--acc-ease),color .3s var(--acc-ease),transform .3s var(--acc-ease)}
 .account-section__tab.is-active .account-section__tab-count{background:var(--deep);color:var(--gold);transform:scale(1.15)}
+.account-section__tab-count.is-unread,.account-section__tab.is-active .account-section__tab-count.is-unread{background:#b93838;color:#fff}
 
 /* ——— section divider ——— */
 .account-section__divider{height:1px;background:linear-gradient(90deg,transparent,var(--acc-line),transparent);margin:6px 0 2px;border:none}
@@ -240,6 +241,9 @@
 .account-section__support-reply-form{display:flex;gap:8px;margin-top:12px}
 .account-section__support-reply-form input{flex:1;min-width:0;border:1px solid var(--acc-line);border-radius:8px;padding:10px 12px;font:12px var(--sans)}
 .account-section__support-reply-form button{border:0;border-radius:8px;background:var(--deep);color:#fff;padding:0 14px;font:700 11px var(--sans);cursor:pointer}
+.account-section__support-unread{margin:0 0 12px;padding:10px 13px;border:1px solid #f3c4bf;border-radius:9px;background:#fff6f5;color:#a3443c;font-size:12px;font-weight:700}
+.account-section__support-card-indicators{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.account-section__support-new{padding:5px 8px;border-radius:20px;background:#b93838;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase}
 .account-section__track-order,.account-section__cancel-order{min-height:36px;padding:0 14px;border:1px solid #dfe4eb;border-radius:8px;background:#fff;color:var(--deep);font:600 11px var(--sans);cursor:pointer}
 .account-section__track-order:hover{background:#f4f7fb;border-color:#aab8ca}
 .account-section__cancel-order{min-height:36px;padding:0 14px;border:1px solid #e6c6c2;border-radius:8px;background:#fff;color:#a3443c;font:600 11px var(--sans);cursor:pointer}

@@ -23,6 +23,8 @@ const supportMessageSchema = new mongoose.Schema(
     subject: { type: String, required: true, trim: true, maxlength: 120 },
     message: { type: String, required: true, trim: true, maxlength: 2000 },
     status: { type: String, enum: ["Open", "Replied", "Resolved"], default: "Open" },
+    userReadAt: { type: Date, default: null },
+    adminReadAt: { type: Date, default: null },
     replies: { type: [replySchema], default: [] },
   },
   { timestamps: true },

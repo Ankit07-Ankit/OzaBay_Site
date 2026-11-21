@@ -1,6 +1,11 @@
 import Joi from "joi";
 import User from "../models/user.model.js";
 import SupportMessage from "../models/support-message.model.js";
+import {
+  countUnreadSupportMessages,
+  markSupportMessagesRead as markMessagesReadForRecipient,
+  withSupportUnreadFlag,
+} from "../services/support-notification.service.js";
 
 const createSchema = Joi.object({
   category: Joi.string().valid("Support", "Feedback", "Order", "Return", "Review", "Vendor").default("Support"),
@@ -18,11 +23,13 @@ export const createSupportMessage = async (req, res, next) => {
   try {
     const user = await User.findById(req.authUserId).select("name email accountType");
     if (!user) return res.status(404).json({ message: "Account not found." });
+    const createdAt = new Date();
     const ticket = await SupportMessage.create({
       userId: user._id,
       userName: user.name,
       userEmail: user.email,
       accountType: user.accountType === "vendor" ? "vendor" : "user",
+      userReadAt: createdAt,
       ...value,
     });
     return res.status(201).json({ message: "Your message was sent to support.", ticket });
@@ -36,7 +43,24 @@ export const listSupportMessages = async (req, res, next) => {
     const tickets = await SupportMessage.find({ userId: req.authUserId })
       .sort({ createdAt: -1 })
       .lean();
-    return res.status(200).json({ tickets });
+    const ticketsWithUnread = withSupportUnreadFlag(tickets, "user");
+    if (req.query.markRead === "true") {
+      await markMessagesReadForRecipient(SupportMessage, tickets, "user");
+    }
+    return res.status(200).json({ tickets: ticketsWithUnread });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getSupportUnreadCount = async (req, res, next) => {
+  try {
+    const tickets = await SupportMessage.find({ userId: req.authUserId })
+      .select("createdAt replies.sender replies.createdAt userReadAt")
+      .lean();
+    return res.status(200).json({
+      unreadCount: countUnreadSupportMessages(tickets, "user"),
+    });
   } catch (error) {
     return next(error);
   }
@@ -58,6 +82,7 @@ export const replyToSupportMessage = async (req, res, next) => {
           },
         },
         $set: { status: "Open" },
+        $max: { userReadAt: new Date() },
       },
       { new: true, runValidators: true },
     );

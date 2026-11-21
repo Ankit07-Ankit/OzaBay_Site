@@ -11,6 +11,11 @@ import User from "../models/user.model.js";
 import UserProduct from "../models/user-product.model.js";
 import VendorProduct from "../models/vendor-product.model.js";
 import SupportMessage from "../models/support-message.model.js";
+import {
+  countUnreadSupportMessages,
+  markSupportMessagesRead as markMessagesReadForRecipient,
+  withSupportUnreadFlag,
+} from "../services/support-notification.service.js";
 import { removeVendorProduct } from "./vendor-product.controller.js";
 
 const adminLoginSchema = Joi.object({
@@ -358,7 +363,22 @@ const listSupportMessages = async (req, res, next) => {
     const tickets = await SupportMessage.find({})
       .sort({ createdAt: -1 })
       .lean();
-    return res.status(200).json({ tickets });
+    const ticketsWithUnread = withSupportUnreadFlag(tickets, "admin");
+    await markMessagesReadForRecipient(SupportMessage, tickets, "admin");
+    return res.status(200).json({ tickets: ticketsWithUnread });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const getSupportUnreadCount = async (req, res, next) => {
+  try {
+    const tickets = await SupportMessage.find({})
+      .select("createdAt replies.sender replies.createdAt adminReadAt")
+      .lean();
+    return res.status(200).json({
+      unreadCount: countUnreadSupportMessages(tickets, "admin"),
+    });
   } catch (error) {
     return next(error);
   }
@@ -408,6 +428,7 @@ export {
   deleteAccount,
   deleteProduct,
   getSummary,
+  getSupportUnreadCount,
   listAccounts,
   listOrders,
   listProducts,

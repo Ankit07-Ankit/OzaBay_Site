@@ -96,6 +96,7 @@ export default function AccountSection({
   onRequestOrderItemCancellation,
   onRequestOrderItemReturn,
   onListSupportMessages,
+  onGetSupportUnreadCount,
   onCreateSupportMessage,
   onReplySupportMessage,
 }) {
@@ -138,6 +139,7 @@ export default function AccountSection({
   const [showPasswords, setShowPasswords] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [supportTickets, setSupportTickets] = useState([]);
+  const [supportUnreadCount, setSupportUnreadCount] = useState(0);
   const [supportCategory, setSupportCategory] = useState(isVendor ? "Vendor" : "Support");
   const [supportSubject, setSupportSubject] = useState("");
   const [supportText, setSupportText] = useState("");
@@ -324,11 +326,48 @@ export default function AccountSection({
   };
 
   useEffect(() => {
-    if (activeTab !== "Support" || !onListSupportMessages) return;
-    onListSupportMessages()
-      .then((result) => setSupportTickets(result.tickets || []))
-      .catch((requestError) => setSupportError(requestError.message));
-  }, [activeTab]);
+    if (!onGetSupportUnreadCount) return undefined;
+    let active = true;
+    const refreshUnreadCount = () => {
+      onGetSupportUnreadCount()
+        .then((result) => {
+          if (active) setSupportUnreadCount(Number(result.unreadCount) || 0);
+        })
+        .catch(() => {});
+    };
+    refreshUnreadCount();
+    const interval = window.setInterval(refreshUnreadCount, 30000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshUnreadCount();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [onGetSupportUnreadCount]);
+
+  useEffect(() => {
+    if (activeTab !== "Support" || !onListSupportMessages) return undefined;
+    let active = true;
+    const loadSupportMessages = async () => {
+      try {
+        const result = await onListSupportMessages({ markRead: true });
+        if (!active) return;
+        setSupportTickets(result.tickets || []);
+        if (active) setSupportUnreadCount(0);
+      } catch (requestError) {
+        if (active) setSupportError(requestError.message);
+      }
+    };
+    loadSupportMessages();
+    const interval = window.setInterval(loadSupportMessages, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [activeTab, onListSupportMessages]);
 
   const submitSupportMessage = async (event) => {
     event.preventDefault();
@@ -915,7 +954,12 @@ export default function AccountSection({
                 <em className="account-section__tab-count">{orders.length}</em>
               )}
               {tab === "Support" && (
-                <em className="account-section__tab-count">{supportTickets.length}</em>
+                <em
+                  className={`account-section__tab-count${supportUnreadCount ? " is-unread" : ""}`}
+                  aria-label={`${supportUnreadCount || supportTickets.length} ${supportUnreadCount ? "unread support conversations" : "support conversations"}`}
+                >
+                  {supportUnreadCount || supportTickets.length}
+                </em>
               )}
             </button>
           ))}
@@ -1806,6 +1850,11 @@ export default function AccountSection({
               </div>
               <span>{supportTickets.length} conversation{supportTickets.length === 1 ? "" : "s"}</span>
             </div>
+            {supportUnreadCount > 0 && (
+              <p className="account-section__support-unread" role="status">
+                {supportUnreadCount} support {supportUnreadCount === 1 ? "conversation has" : "conversations have"} new messages
+              </p>
+            )}
             {supportNotice && <p className="account-section__notice" role="status">{supportNotice}</p>}
             {supportError && <p className="account-section__notice is-error" role="alert">{supportError}</p>}
             {isVendor && (
@@ -1844,7 +1893,10 @@ export default function AccountSection({
                 <article className="account-section__support-card" key={ticket._id}>
                   <div className="account-section__support-card-head">
                     <div><strong>{ticket.subject}</strong><small>{ticket.category}</small></div>
-                    <span className={`account-section__support-status is-${ticket.status.toLowerCase()}`}>{ticket.status}</span>
+                    <div className="account-section__support-card-indicators">
+                      {ticket.hasUnread && <span className="account-section__support-new">New reply</span>}
+                      <span className={`account-section__support-status is-${ticket.status.toLowerCase()}`}>{ticket.status}</span>
+                    </div>
                   </div>
                   <p className="account-section__support-original">{ticket.message}</p>
                   <div className="account-section__support-replies">
