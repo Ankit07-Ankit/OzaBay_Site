@@ -692,9 +692,15 @@ function AdminDashboard() {
                       <input
                         value={supportReply[ticket._id] || ""}
                         onChange={(event) => setSupportReply((current) => ({ ...current, [ticket._id]: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                            event.preventDefault();
+                            replySupportTicket(ticket);
+                          }
+                        }}
                         maxLength={2000}
                         aria-label={`Reply to ${ticket.subject}`}
-                        placeholder="Write a reply to the customer…"
+                        placeholder="Write a reply… (Enter to send)"
                       />
                       <button
                         type="button"

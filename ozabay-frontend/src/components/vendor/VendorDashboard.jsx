@@ -1811,7 +1811,21 @@ export default function VendorDashboard({ account, request }) {
           </label>
           <label>
             <span>Message</span>
-            <textarea value={supportText} onChange={(event) => setSupportText(event.target.value)} minLength={5} maxLength={2000} rows={4} required placeholder="Describe the issue or share feedback…" />
+            <textarea
+              value={supportText}
+              onChange={(event) => setSupportText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              minLength={5}
+              maxLength={2000}
+              rows={4}
+              required
+              placeholder="Describe the issue or share feedback…"
+            />
           </label>
           <button type="submit" className="v-action-btn v-action-btn--primary" disabled={orderActionId === "support-create"}>
             {orderActionId === "support-create" ? "Sending…" : "Send message to admin"}
@@ -1844,9 +1858,15 @@ export default function VendorDashboard({ account, request }) {
                 <input
                   value={supportReply[ticket._id] || ""}
                   onChange={(event) => setSupportReply((current) => ({ ...current, [ticket._id]: event.target.value }))}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      submitSupportReply(ticket);
+                    }
+                  }}
                   maxLength={2000}
                   aria-label={`Reply to ${ticket.subject}`}
-                  placeholder="Reply to OzaBay admin…"
+                  placeholder="Reply to OzaBay admin… (Enter to send)"
                 />
                 <button type="button" disabled={orderActionId === `support:${ticket._id}`} onClick={() => submitSupportReply(ticket)}>
                   Reply

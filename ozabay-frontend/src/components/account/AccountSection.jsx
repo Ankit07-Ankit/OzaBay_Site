@@ -1882,7 +1882,20 @@ export default function AccountSection({
               </label>
               <label className="account-section__support-message">
                 Message
-                <textarea value={supportText} onChange={(event) => setSupportText(event.target.value)} minLength={5} maxLength={2000} rows={5} required />
+                <textarea
+                  value={supportText}
+                  onChange={(event) => setSupportText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  minLength={5}
+                  maxLength={2000}
+                  rows={5}
+                  required
+                />
               </label>
               <button className="hero-action account-section__support-send" type="submit" disabled={supportBusy}>
                 {supportBusy ? "Sending…" : isVendor ? "Send to OzaBay admin ↗" : "Send to support ↗"}
@@ -1912,8 +1925,14 @@ export default function AccountSection({
                       aria-label={`Reply to ${ticket.subject}`}
                       value={supportReply[ticket._id] || ""}
                       onChange={(event) => setSupportReply((current) => ({ ...current, [ticket._id]: event.target.value }))}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                          event.preventDefault();
+                          submitSupportReply(ticket._id);
+                        }
+                      }}
                       maxLength={2000}
-                      placeholder="Write a reply…"
+                      placeholder="Write a reply… (Enter to send)"
                     />
                     <button type="button" disabled={supportBusy} onClick={() => submitSupportReply(ticket._id)}>Reply</button>
                   </div>
