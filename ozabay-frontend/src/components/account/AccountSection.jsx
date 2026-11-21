@@ -124,6 +124,9 @@ export default function AccountSection({
   const [cancelOrderNotice, setCancelOrderNotice] = useState("");
   const [cancellingOrderId, setCancellingOrderId] = useState("");
   const [requestingCancellationItemId, setRequestingCancellationItemId] = useState("");
+  const [cancellationFormKey, setCancellationFormKey] = useState("");
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [cancellationRequestError, setCancellationRequestError] = useState("");
   const [confirmCancelOrderId, setConfirmCancelOrderId] = useState("");
   const [returningItemId, setReturningItemId] = useState("");
   const [returnFormKey, setReturnFormKey] = useState(""); // "orderId:productId"
@@ -169,26 +172,31 @@ export default function AccountSection({
     }
   };
 
-  const requestItemCancellation = async (order, item) => {
-    const reason = window.prompt(
-      `Optional: why are you requesting cancellation of ${item.name}?`,
-    );
-    if (reason === null) return;
+  const openCancellationForm = (order, item) => {
     const itemKey = `${order.id}:${item.productId}`;
-    setCancelOrderError("");
+    setCancellationFormKey((current) => (current === itemKey ? "" : itemKey));
+    setCancellationReason("");
+    setCancellationRequestError("");
+  };
+
+  const requestItemCancellation = async (order, item) => {
+    const itemKey = `${order.id}:${item.productId}`;
+    setCancellationRequestError("");
     setCancelOrderNotice("");
     setRequestingCancellationItemId(itemKey);
     try {
       const result = await onRequestOrderItemCancellation(
         order.id,
         item.productId,
-        reason.trim(),
+        cancellationReason.trim(),
       );
       setCancelOrderNotice(
         result.message || "Cancellation request sent to the vendor.",
       );
+      setCancellationFormKey("");
+      setCancellationReason("");
     } catch (requestError) {
-      setCancelOrderError(
+      setCancellationRequestError(
         requestError.message || "Unable to request product cancellation.",
       );
     } finally {
@@ -1945,6 +1953,7 @@ export default function AccountSection({
                             deliveredAt <= Date.now() &&
                             Date.now() < returnDeadline;
                           const isReturnFormOpen = returnFormKey === itemKey;
+                          const isCancellationFormOpen = cancellationFormKey === itemKey;
                           const isReturningThis = returningItemId === itemKey;
                           const canSubmitReturn =
                             Boolean(returnReason) &&
@@ -2046,12 +2055,13 @@ export default function AccountSection({
                                       type="button"
                                       className="account-section__cancel-item-request"
                                       disabled={requestingCancellationItemId === itemKey}
-                                      onClick={() =>
-                                        requestItemCancellation(order, item)
-                                      }
+                                      aria-expanded={isCancellationFormOpen}
+                                      onClick={() => openCancellationForm(order, item)}
                                     >
                                       {requestingCancellationItemId === itemKey
                                         ? "Sending request…"
+                                        : isCancellationFormOpen
+                                          ? "Close request form"
                                         : item.cancellationRequest?.status === "rejected"
                                           ? "Request cancellation again"
                                           : "Request cancellation"}
@@ -2099,6 +2109,58 @@ export default function AccountSection({
                                     </small>
                                   )}
                               </div>
+
+                              {isCancellationFormOpen && (
+                                <div
+                                  className="account-section__cancel-item-panel"
+                                  role="region"
+                                  aria-label={`Cancellation request for ${item.name}`}
+                                >
+                                  <label htmlFor={`cancel-reason-${itemKey}`}>
+                                    Why do you need to cancel? <span>(optional)</span>
+                                  </label>
+                                  <textarea
+                                    id={`cancel-reason-${itemKey}`}
+                                    value={cancellationReason}
+                                    onChange={(event) => {
+                                      setCancellationReason(event.target.value);
+                                      if (cancellationRequestError) {
+                                        setCancellationRequestError("");
+                                      }
+                                    }}
+                                    maxLength={500}
+                                    rows={3}
+                                    placeholder="Add a short reason for the vendor…"
+                                    disabled={requestingCancellationItemId === itemKey}
+                                  />
+                                  <div className="account-section__cancel-item-panel-footer">
+                                    <small>{cancellationReason.length} / 500 characters</small>
+                                    {cancellationRequestError && (
+                                      <p role="alert">{cancellationRequestError}</p>
+                                    )}
+                                  </div>
+                                  <div className="account-section__cancel-item-panel-actions">
+                                    <button
+                                      type="button"
+                                      className="account-section__cancel-item-submit"
+                                      disabled={requestingCancellationItemId === itemKey}
+                                      onClick={() => requestItemCancellation(order, item)}
+                                    >
+                                      {requestingCancellationItemId === itemKey
+                                        ? "Sending request…"
+                                        : "Send cancellation request"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="account-section__cancel-item-dismiss"
+                                      disabled={requestingCancellationItemId === itemKey}
+                                      onClick={() => openCancellationForm(order, item)}
+                                    >
+                                      Keep item
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
 
                               {/* 1. In-UI Return Feedback Banner (Success / Error notification - No alert/popup) */}
                               {returnFeedback[itemKey] && (
