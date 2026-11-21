@@ -55,6 +55,12 @@ app.use("/api/geocode", geocodeRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/support", supportRouter);
 
+app.get("/favicon.ico", (req, res) => {
+  res.type("image/svg+xml").send(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#071a36"/><path d="M32 10 54 32 32 54 10 32 32 10Z" fill="none" stroke="#d7b578" stroke-width="2"/><text x="32" y="41" fill="#fff" font-family="Georgia,serif" font-size="29" text-anchor="middle">O</text></svg>',
+  );
+});
+
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
