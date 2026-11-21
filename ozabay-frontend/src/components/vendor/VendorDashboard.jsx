@@ -102,6 +102,9 @@ export default function VendorDashboard({ account, request }) {
   const [supportText, setSupportText] = useState("");
   const [supportReply, setSupportReply] = useState({});
 
+  const imageInputRef = useRef(null);
+  const videoInputRef = useRef(null);
+
   /* ── Locations Management State ── */
   const [locations, setLocations] = useState(() => {
     try {
@@ -1040,19 +1043,29 @@ export default function VendorDashboard({ account, request }) {
           <div className="vendor-form-section">
             <span className="vendor-form-section__tag">03. Studio Photography & Video</span>
 
-            <label className="v-file-dropzone">
-              <input
-                type="file"
-                name="images"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                disabled={saving}
-                onChange={chooseImages}
-              />
+            <input
+              ref={imageInputRef}
+              className="v-file-input-hidden"
+              type="file"
+              name="images"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              disabled={saving}
+              aria-hidden="true"
+              tabIndex={-1}
+              onChange={chooseImages}
+            />
+            <button
+              type="button"
+              className="v-file-dropzone"
+              disabled={saving}
+              aria-label="Choose product images"
+              onClick={() => imageInputRef.current?.click()}
+            >
               <span className="v-file-dropzone__icon">📷</span>
               <strong>Click to upload product images</strong>
               <small>JPEG, PNG, WebP · Max 5 images · Up to 50 MB each</small>
-            </label>
+            </button>
 
             <p className="vendor-product-form__hint">
               {retainedImages.length + newImages.length} of 5 images selected.
@@ -1108,18 +1121,28 @@ export default function VendorDashboard({ account, request }) {
               </div>
             )}
 
-            <label className="v-file-dropzone v-file-dropzone--video">
-              <input
-                type="file"
-                name="video"
-                accept="video/mp4,video/webm"
-                disabled={saving || Boolean(newVideo || retainedVideo)}
-                onChange={chooseVideo}
-              />
+            <input
+              ref={videoInputRef}
+              className="v-file-input-hidden"
+              type="file"
+              name="video"
+              accept="video/mp4,video/webm"
+              disabled={saving || Boolean(newVideo || retainedVideo)}
+              aria-hidden="true"
+              tabIndex={-1}
+              onChange={chooseVideo}
+            />
+            <button
+              type="button"
+              className="v-file-dropzone v-file-dropzone--video"
+              disabled={saving || Boolean(newVideo || retainedVideo)}
+              aria-label="Choose a product video"
+              onClick={() => videoInputRef.current?.click()}
+            >
               <span className="v-file-dropzone__icon">🎬</span>
               <strong>Add Craft Process Video (Optional)</strong>
               <small>MP4, WebM · 1 process clip · Up to 50 MB</small>
-            </label>
+            </button>
 
             {/* Video preview */}
             {(retainedVideo || newVideo) && (
