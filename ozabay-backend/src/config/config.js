@@ -3,6 +3,11 @@ import { fileURLToPath } from "node:url";
 
 dotenv.config({ path: fileURLToPath(new URL("../../.env", import.meta.url)) });
 
+const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+const googleRefreshToken = process.env.GOOGLE_REFRESH_TOKEN?.trim();
+const googleUser = process.env.GOOGLE_USER?.trim();
+
 if (!process.env.MONGO_URI) {
   throw new Error("MONGO_URI is not defined in the environment variables");
 }
@@ -11,25 +16,25 @@ if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is not defined in the environment variables");
 }
 
-if (!process.env.GOOGLE_CLIENT_ID) {
+if (!googleClientId) {
   throw new Error(
     "GOOGLE_CLIENT_ID is not defined in the environment variables",
   );
 }
 
-if (!process.env.GOOGLE_CLIENT_SECRET) {
+if (!googleClientSecret) {
   throw new Error(
     "GOOGLE_CLIENT_SECRET is not defined in the environment variables",
   );
 }
 
-if (!process.env.GOOGLE_REFRESH_TOKEN) {
+if (!googleRefreshToken) {
   throw new Error(
     "GOOGLE_REFRESH_TOKEN is not defined in the environment variables",
   );
 }
 
-if (!process.env.GOOGLE_USER) {
+if (!googleUser) {
   throw new Error("GOOGLE_USER is not defined in the environment variables");
 }
 
@@ -37,10 +42,10 @@ const config = {
   MONGO_URI: process.env.MONGO_URI,
   JWT_SECRET: process.env.JWT_SECRET,
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-  GOOGLE_REFRESH_TOKEN: process.env.GOOGLE_REFRESH_TOKEN,
-  GOOGLE_USER: process.env.GOOGLE_USER,
+  GOOGLE_CLIENT_ID: googleClientId,
+  GOOGLE_CLIENT_SECRET: googleClientSecret,
+  GOOGLE_REFRESH_TOKEN: googleRefreshToken,
+  GOOGLE_USER: googleUser,
   ADMIN_EMAIL: process.env.ADMIN_EMAIL?.trim().toLowerCase() || "",
   ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH || "",
 };

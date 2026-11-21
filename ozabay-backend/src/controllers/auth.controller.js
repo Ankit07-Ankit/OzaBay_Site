@@ -141,20 +141,23 @@ const register = async (req, res) => {
 
   try {
     const existingUser = await userModel.findOne({ email });
-    if (existingUser) {
+    if (existingUser?.verified) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // A previous registration may have created the account before Gmail failed.
+    // Let the same account owner retry using their password and send a fresh code.
+    if (existingUser && !(await bcrypt.compare(password, existingUser.password || ""))) {
+      return res.status(400).json({ message: "User already exists" });
+    }
 
-    const newUser = new userModel({
-      name,
-      email,
-      password: hashedPassword,
-      accountType,
-    });
-
-    await newUser.save();
+    const isNewUser = !existingUser;
+    let newUser = existingUser;
+    if (isNewUser) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      newUser = new userModel({ name, email, password: hashedPassword, accountType });
+      await newUser.save();
+    }
 
     const otp = generateOTP();
 
@@ -174,10 +177,30 @@ const register = async (req, res) => {
     const emailText = `Your OTP for email verification is: ${otp}. It will expire in 10 minutes.`;
     const emailHtml = otpHtmlTemplate(otp);
 
-    await sendEmail(newUser.email, emailSubject, emailText, emailHtml);
+    try {
+      await sendEmail(newUser.email, emailSubject, emailText, emailHtml);
+    } catch (error) {
+      const cleanup = await Promise.allSettled([
+        OTP.deleteOne({ _id: newOTP._id }),
+        ...(isNewUser ? [userModel.deleteOne({ _id: newUser._id, verified: false })] : []),
+      ]);
+      cleanup.forEach((result) => {
+        if (result.status === "rejected") {
+          console.error("Unable to clean up a failed email verification attempt:", result.reason);
+        }
+      });
+      throw error;
+    }
 
-    return res.status(201).json({
-      message: "User registered successfully",
+    // Keep only the code that was just delivered.
+    await OTP.deleteMany({
+      userId: newUser._id,
+      purpose: "email_verification",
+      _id: { $ne: newOTP._id },
+    });
+
+    return res.status(isNewUser ? 201 : 200).json({
+      message: isNewUser ? "User registered successfully" : "Verification email sent",
       user: {
         id: newUser._id,
         name: newUser.name,
@@ -188,6 +211,11 @@ const register = async (req, res) => {
     });
   } catch (error) {
     console.error("Error registering user:", error);
+    if (error.message === "Failed to send email") {
+      return res.status(502).json({
+        message: "We couldn't send the verification email. Check the email service settings or try again later.",
+      });
+    }
     return res.status(500).json({ message: "Server error" });
   }
 };
