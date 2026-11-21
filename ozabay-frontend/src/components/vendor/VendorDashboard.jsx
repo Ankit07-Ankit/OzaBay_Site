@@ -341,6 +341,39 @@ export default function VendorDashboard({ account, request }) {
     }
   };
 
+  const reviewItemCancellation = async (orderId, productId, status) => {
+    const actionId = `${orderId}:${productId}`;
+    setOrderActionId(actionId);
+    setOrdersError("");
+    setOrdersNotice("");
+    try {
+      const result = await request(
+        `/orders/${orderId}/items/${productId}/cancel-request`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      );
+      if (result?.order?._id) {
+        setOrders((current) =>
+          current.map((order) =>
+            order._id === result.order._id ? result.order : order,
+          ),
+        );
+      } else {
+        await loadOrders();
+      }
+      setOrdersNotice(result.message || `Cancellation request ${status}.`);
+    } catch (requestError) {
+      setOrdersError(
+        requestError.message || "Unable to review this cancellation request.",
+      );
+    } finally {
+      setOrderActionId("");
+    }
+  };
+
   const loadLocations = async () => {
     try {
       const result = await request("/locations");
@@ -1782,7 +1815,10 @@ export default function VendorDashboard({ account, request }) {
                       {item.fulfillmentStatus !== "Cancelled" && (
                         <div className="vendor-item-status-controls">
                           <small>Update fulfillment:</small>
-                          <div className="vendor-item-status-actions" aria-label={`Update status for ${item.name}`}>
+                          <div
+                            className="vendor-item-status-actions"
+                            aria-label={`Update status for ${item.name}`}
+                          >
                             {VENDOR_FULFILLMENT_STATUSES.map((status) => {
                               const actionId = `${order._id}:${item.productId}`;
                               const isUpdating = orderActionId === actionId;
@@ -1792,7 +1828,11 @@ export default function VendorDashboard({ account, request }) {
                                   type="button"
                                   className={`v-action-btn v-action-btn--ghost${item.fulfillmentStatus === status ? " is-active" : ""}`}
                                   aria-pressed={item.fulfillmentStatus === status}
-                                  disabled={isUpdating || item.fulfillmentStatus === status}
+                                  disabled={
+                                    isUpdating
+                                    || item.fulfillmentStatus === status
+                                    || item.cancellationRequest?.status === "requested"
+                                  }
                                   onClick={() =>
                                     updateOrderItemStatus(order._id, item.productId, status)
                                   }
@@ -1804,6 +1844,11 @@ export default function VendorDashboard({ account, request }) {
                               );
                             })}
                           </div>
+                          {item.cancellationRequest?.status === "requested" && (
+                            <small className="vendor-cancellation-status">
+                              Fulfillment updates paused until the cancellation request is reviewed.
+                            </small>
+                          )}
                         </div>
                       )}
                       {order.paymentMethod === "Cash on delivery" && (
@@ -1852,6 +1897,27 @@ export default function VendorDashboard({ account, request }) {
                           {item.returnRequest.reason && ` · ${item.returnRequest.reason}`}
                         </small>
                       )}
+                      {item.cancellationRequest?.status
+                        && item.cancellationRequest.status !== "none" && (
+                          <small className={`vendor-cancellation-status vendor-cancellation-status--${item.cancellationRequest.status}`}>
+                            Cancellation {item.cancellationRequest.status}
+                          </small>
+                        )}
+                      {item.cancellationRequest?.status === "requested" && (
+                        <small className="vendor-return-detail">
+                          Requested {item.cancellationRequest.requestedAt
+                            ? formatUploadDate(item.cancellationRequest.requestedAt)
+                            : ""}
+                          {item.cancellationRequest.reason
+                            && ` · ${item.cancellationRequest.reason}`}
+                        </small>
+                      )}
+                      {["approved", "rejected"].includes(item.cancellationRequest?.status)
+                        && item.cancellationRequest.reviewedAt && (
+                          <small className="vendor-return-detail">
+                            Reviewed {formatUploadDate(item.cancellationRequest.reviewedAt)}
+                          </small>
+                        )}
                     </div>
                     <strong>{formatPrice(item.lineTotal)}</strong>
                     {item.returnRequest?.status === "requested" && (
@@ -1874,6 +1940,32 @@ export default function VendorDashboard({ account, request }) {
                           disabled={orderActionId === `${order._id}:${item.productId}`}
                           onClick={() =>
                             reviewReturnRequest(order._id, item.productId, "rejected")
+                          }
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    )}
+                    {item.cancellationRequest?.status === "requested" && (
+                      <div className="vendor-return-actions">
+                        <button
+                          type="button"
+                          className="v-action-btn v-action-btn--ghost"
+                          disabled={orderActionId === `${order._id}:${item.productId}`}
+                          onClick={() =>
+                            reviewItemCancellation(order._id, item.productId, "approved")
+                          }
+                        >
+                          {orderActionId === `${order._id}:${item.productId}`
+                            ? "Reviewing…"
+                            : "Approve cancellation"}
+                        </button>
+                        <button
+                          type="button"
+                          className="v-action-btn v-action-btn--ghost"
+                          disabled={orderActionId === `${order._id}:${item.productId}`}
+                          onClick={() =>
+                            reviewItemCancellation(order._id, item.productId, "rejected")
                           }
                         >
                           Decline

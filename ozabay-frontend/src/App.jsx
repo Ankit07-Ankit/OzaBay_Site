@@ -9,13 +9,6 @@ import RegionalCrafts from "./components/regional/RegionalCrafts.jsx";
 import TrustStrip from "./components/marketing/TrustStrip.jsx";
 import CraftFilm from "./components/marketing/CraftFilm.jsx";
 import MakerStories from "./components/marketing/MakerStories.jsx";
-import Product3DViewer from "./components/product/Product3DViewer.jsx";
-import ProductDetail from "./components/product/ProductDetail.jsx";
-import ReviewForm from "./components/product/ReviewForm.jsx";
-import SignIn from "./components/auth/SignIn.jsx";
-import SignUp from "./components/auth/SignUp.jsx";
-import AccountSection from "./components/account/AccountSection.jsx";
-import VendorDashboard from "./components/vendor/VendorDashboard.jsx";
 import { IMG } from "./data/assets.js";
 import { INDIA_CRAFTS } from "./data/regionalCrafts.js";
 import { REGIONAL_CRAFT_PRODUCTS } from "./data/regionalCraftProducts.js";
@@ -25,6 +18,15 @@ import { apiUrl } from "./utils/api.js";
 import LazyVideo from "./components/shared/LazyVideo.jsx";
 import "./index.css";
 import "./premium-upgrades.css";
+
+const Product3DViewer = lazy(() => import("./components/product/Product3DViewer.jsx"));
+const ProductDetail = lazy(() => import("./components/product/ProductDetail.jsx"));
+const ReviewForm = lazy(() => import("./components/product/ReviewForm.jsx"));
+const SignIn = lazy(() => import("./components/auth/SignIn.jsx"));
+const SignUp = lazy(() => import("./components/auth/SignUp.jsx"));
+const AccountSection = lazy(() => import("./components/account/AccountSection.jsx"));
+const VendorDashboard = lazy(() => import("./components/vendor/VendorDashboard.jsx"));
+const StateCraftMarketplace = lazy(() => import("./components/regional/StateCraftMarketplace.jsx"));
 
 let refreshAccessTokenPromise;
 
@@ -547,6 +549,7 @@ export default function App() {
       return [];
     }
   });
+  const customerOrdersRefreshRef = useRef(null);
   const [tracking, setTracking] = useState("");
   const [reviewProduct, setReviewProduct] = useState(null);
   const [reviewLoginRequired, setReviewLoginRequired] = useState(false);
@@ -1074,6 +1077,7 @@ export default function App() {
         fulfillmentStatus: item.fulfillmentStatus,
         deliveredAt: item.deliveredAt,
         cashOnDelivery: item.cashOnDelivery,
+        cancellationRequest: item.cancellationRequest,
         returnRequest: item.returnRequest,
       })),
       total: savedOrder.total,
@@ -1321,10 +1325,12 @@ export default function App() {
     }
 
     let cancelled = false;
+    let latestRequest = 0;
     const loadOrders = ({ silent = false } = {}) => {
-      requestAuthenticatedApi("/orders/mine")
+      const requestNumber = ++latestRequest;
+      requestAuthenticatedApi("/orders/mine", { cache: "no-store" })
         .then(({ orders: savedOrders }) => {
-          if (cancelled) return;
+          if (cancelled || requestNumber !== latestRequest) return;
           setOrders(
             (savedOrders || []).map((order) => ({
               id: order._id,
@@ -1338,6 +1344,7 @@ export default function App() {
                 fulfillmentStatus: item.fulfillmentStatus,
                 deliveredAt: item.deliveredAt,
                 cashOnDelivery: item.cashOnDelivery,
+                cancellationRequest: item.cancellationRequest,
                 returnRequest: item.returnRequest,
               })),
               total: order.total,
@@ -1351,16 +1358,21 @@ export default function App() {
           );
         })
         .catch((error) => {
-          if (!cancelled && !silent) {
+          if (!cancelled && requestNumber === latestRequest && !silent) {
             console.error("Unable to load customer orders:", error);
           }
         });
     };
 
+    customerOrdersRefreshRef.current = () => loadOrders({ silent: true });
     loadOrders();
     const interval = window.setInterval(
-      () => loadOrders({ silent: true }),
-      15000,
+      () => {
+        if (document.visibilityState === "visible") {
+          loadOrders({ silent: true });
+        }
+      },
+      5000,
     );
     const onVisible = () => {
       if (document.visibilityState === "visible") loadOrders({ silent: true });
@@ -1369,6 +1381,7 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      customerOrdersRefreshRef.current = null;
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
@@ -1453,6 +1466,45 @@ export default function App() {
         fulfillmentStatus: item.fulfillmentStatus,
         deliveredAt: item.deliveredAt,
         cashOnDelivery: item.cashOnDelivery,
+        cancellationRequest: item.cancellationRequest,
+        returnRequest: item.returnRequest,
+      })),
+      total: savedOrder.total,
+      customer: savedOrder.customer,
+      status: savedOrder.orderStatus,
+      paymentMethod: savedOrder.paymentMethod,
+      paymentStatus: savedOrder.paymentStatus,
+      paymentDetails: savedOrder.paymentDetails,
+      cancelledAt: savedOrder.cancelledAt,
+    };
+    setOrders((current) =>
+      current.map((existing) => (existing.id === order.id ? order : existing)),
+    );
+    return result;
+  };
+  const requestOrderItemCancellation = async (
+    orderId,
+    productId,
+    reason = "",
+  ) => {
+    const result = await requestAuthenticatedApi(
+      `/orders/${encodeURIComponent(orderId)}/items/${encodeURIComponent(productId)}/cancel-request`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    );
+    const savedOrder = result.order;
+    const order = {
+      id: savedOrder._id,
+      createdAt: savedOrder.createdAt,
+      updatedAt: savedOrder.updatedAt,
+      items: savedOrder.items.map((item) => ({
+        name: item.name,
+        productId: item.productId,
+        qty: item.quantity,
+        priceValue: item.unitPrice,
+        fulfillmentStatus: item.fulfillmentStatus,
+        deliveredAt: item.deliveredAt,
+        cashOnDelivery: item.cashOnDelivery,
+        cancellationRequest: item.cancellationRequest,
         returnRequest: item.returnRequest,
       })),
       total: savedOrder.total,
@@ -1486,6 +1538,7 @@ export default function App() {
         fulfillmentStatus: item.fulfillmentStatus,
         deliveredAt: item.deliveredAt,
         cashOnDelivery: item.cashOnDelivery,
+        cancellationRequest: item.cancellationRequest,
         returnRequest: item.returnRequest,
       })),
       total: savedOrder.total,
@@ -1771,14 +1824,16 @@ export default function App() {
       <main id="home">
         {vendorRoute ? (
           account?.accountType === "vendor" ? (
-            <VendorDashboard
-              account={account}
-              request={requestVendorApi}
-              onGoToMarketplace={() => {
-                setVendorRoute(false);
-                navigate("/", { replace: true });
-              }}
-            />
+            <Suspense fallback={<div className="catalog-loading">Loading maker studio…</div>}>
+              <VendorDashboard
+                account={account}
+                request={requestVendorApi}
+                onGoToMarketplace={() => {
+                  setVendorRoute(false);
+                  navigate("/", { replace: true });
+                }}
+              />
+            </Suspense>
           ) : (
             <section className="vendor-access-page">
               <div className="oz-container">
@@ -1818,19 +1873,21 @@ export default function App() {
           (() => {
             const state = INDIA_CRAFTS.find((s) => stateSlug(s) === craftRoute);
             return state ? (
-              <StateCraftMarketplace
-                state={state}
-                products={REGIONAL_CRAFT_PRODUCTS.filter(
-                  (p) => p.state === state.name,
-                )}
-                onBack={backToAtlas}
-                onProduct={(p) => setModal({ type: "product", product: p })}
-                onAdd={(p) => {
-                  if (add(p)) setModal("cart");
-                }}
-                onToggleWish={toggleWish}
-                wish={wish}
-              />
+              <Suspense fallback={<div className="catalog-loading">Loading craft edit…</div>}>
+                <StateCraftMarketplace
+                  state={state}
+                  products={REGIONAL_CRAFT_PRODUCTS.filter(
+                    (p) => p.state === state.name,
+                  )}
+                  onBack={backToAtlas}
+                  onProduct={(p) => setModal({ type: "product", product: p })}
+                  onAdd={(p) => {
+                    if (add(p)) setModal("cart");
+                  }}
+                  onToggleWish={toggleWish}
+                  wish={wish}
+                />
+              </Suspense>
             ) : (
               <div className="oz-container state-market-empty-page">
                 <h1>Craft edit not found.</h1>
@@ -2741,31 +2798,35 @@ export default function App() {
         >
           <div className={`modal ${modal?.type === "3d" ? "modal--3d" : ""}`}>
             {modal?.type === "3d" && (
-              <Product3DViewer
-                product={modal.product}
-                onClose={() => setModal(null)}
-                onAdd={(p) => {
-                  if (add(p)) setModal("cart");
-                }}
-                onSpace={(p) => setModal({ type: "space", product: p })}
-              />
+              <Suspense fallback={<div className="catalog-loading">Loading product viewer…</div>}>
+                <Product3DViewer
+                  product={modal.product}
+                  onClose={() => setModal(null)}
+                  onAdd={(p) => {
+                    if (add(p)) setModal("cart");
+                  }}
+                  onSpace={(p) => setModal({ type: "space", product: p })}
+                />
+              </Suspense>
             )}
             {modal?.type === "product" && (
-              <ProductDetail
-                key={modal.product.id || modal.product.name}
-                product={modal.product}
-                reviewRefreshToken={reviewRefreshToken}
-                onClose={() => setModal(null)}
-                onAdd={(p) => {
-                  if (add(p)) setModal("cart");
-                }}
-                onView3D={(p) => setModal({ type: "3d", product: p })}
-                onSpace={(p) => setModal({ type: "space", product: p })}
-                onReview={(p) => {
-                  setReviewProduct(p);
-                  setReviewLoginRequired(false);
-                }}
-              />
+              <Suspense fallback={<div className="catalog-loading">Loading product details…</div>}>
+                <ProductDetail
+                  key={modal.product.id || modal.product.name}
+                  product={modal.product}
+                  reviewRefreshToken={reviewRefreshToken}
+                  onClose={() => setModal(null)}
+                  onAdd={(p) => {
+                    if (add(p)) setModal("cart");
+                  }}
+                  onView3D={(p) => setModal({ type: "3d", product: p })}
+                  onSpace={(p) => setModal({ type: "space", product: p })}
+                  onReview={(p) => {
+                    setReviewProduct(p);
+                    setReviewLoginRequired(false);
+                  }}
+                />
+              </Suspense>
             )}
             {modal?.type === "space" &&
               (() => {
@@ -3191,65 +3252,71 @@ export default function App() {
                   ×
                 </button>
                 {account ? (
-                  <AccountSection
-                    account={account}
-                    isVendor={account.accountType === "vendor"}
-                    vendorProducts={vendorProducts}
-                    vendorProductsLoaded={vendorProductsLoaded}
-                    favorites={[
-                      ...catalogProducts,
-                      ...REGIONAL_CRAFT_PRODUCTS,
-                    ].filter((p) =>
-                      wish.some((id) => String(id) === String(p.id)),
-                    )}
-                    bag={cart}
-                    bagTotal={cartTotal}
-                    onSaveProfile={updateProfile}
-                    onRequestPasswordChange={requestPasswordChange}
-                    onConfirmPasswordChange={confirmPasswordChange}
-                    onSaveLocation={saveDeliveryLocation}
-                    onRemoveFavorite={(id) =>
-                      setWish((current) =>
-                        current.filter((item) => String(item) !== String(id)),
-                      )
-                    }
-                    onRemoveBag={remove}
-                    onUpdateQuantity={qty}
-                    onAddToBag={add}
-                    onBuyNow={() => setModal("checkout")}
-                    onOpenVendorPanel={() => {
-                      setVendorRoute(true);
-                      navigate("/vendor");
-                      setModal(null);
-                    }}
-                    onLogout={logout}
-                    orders={orders}
-                    onCancelOrder={cancelCustomerOrder}
-                    onRequestOrderItemReturn={requestOrderItemReturn}
-                    onListSupportMessages={listSupportMessages}
-                    onCreateSupportMessage={createSupportMessage}
-                    onReplySupportMessage={replySupportMessage}
-                  />
+                  <Suspense fallback={<div className="catalog-loading">Loading account…</div>}>
+                    <AccountSection
+                      account={account}
+                      isVendor={account.accountType === "vendor"}
+                      vendorProducts={vendorProducts}
+                      vendorProductsLoaded={vendorProductsLoaded}
+                      favorites={[
+                        ...catalogProducts,
+                        ...REGIONAL_CRAFT_PRODUCTS,
+                      ].filter((p) =>
+                        wish.some((id) => String(id) === String(p.id)),
+                      )}
+                      bag={cart}
+                      bagTotal={cartTotal}
+                      onSaveProfile={updateProfile}
+                      onRequestPasswordChange={requestPasswordChange}
+                      onConfirmPasswordChange={confirmPasswordChange}
+                      onSaveLocation={saveDeliveryLocation}
+                      onRemoveFavorite={(id) =>
+                        setWish((current) =>
+                          current.filter((item) => String(item) !== String(id)),
+                        )
+                      }
+                      onRemoveBag={remove}
+                      onUpdateQuantity={qty}
+                      onAddToBag={add}
+                      onBuyNow={() => setModal("checkout")}
+                      onOpenVendorPanel={() => {
+                        setVendorRoute(true);
+                        navigate("/vendor");
+                        setModal(null);
+                      }}
+                      onLogout={logout}
+                      orders={orders}
+                      onCancelOrder={cancelCustomerOrder}
+                      onRequestOrderItemReturn={requestOrderItemReturn}
+                      onRequestOrderItemCancellation={requestOrderItemCancellation}
+                      onRefreshOrders={() => customerOrdersRefreshRef.current?.()}
+                      onListSupportMessages={listSupportMessages}
+                      onCreateSupportMessage={createSupportMessage}
+                      onReplySupportMessage={replySupportMessage}
+                    />
+                  </Suspense>
                 ) : authView === "signin" ? (
-                  <SignIn
-                    onSignIn={signIn}
-                    onGoogleSignIn={signUp}
-                    onRequestPasswordReset={requestPasswordReset}
-                    onResetPassword={resetPassword}
-                    onSignUp={() => {
-                      setSignupAccountType("user");
-                      setAuthView("signup");
-                    }}
-                  />
+                  <Suspense fallback={<div className="catalog-loading">Loading sign in…</div>}>
+                    <SignIn
+                      onSignIn={signIn}
+                      onGoogleSignIn={signUp}
+                      onRequestPasswordReset={requestPasswordReset}
+                      onResetPassword={resetPassword}
+                      onSignUp={() => {
+                        setSignupAccountType("user");
+                        setAuthView("signup");
+                      }}
+                    />
+                  </Suspense>
                 ) : (
-                  <>
+                  <Suspense fallback={<div className="catalog-loading">Loading sign up…</div>}>
                     <SignUp
                       key={signupAccountType}
                       onSignUp={signUp}
                       onSignIn={() => setAuthView("signin")}
                       initialAccountType={signupAccountType}
                     />
-                  </>
+                  </Suspense>
                 )}
               </>
             )}
@@ -4428,14 +4495,16 @@ export default function App() {
         </div>
       )}
       {reviewProduct && modal !== "account" && (
-        <ReviewForm
-          product={reviewProduct}
-          account={account}
-          loginRequired={reviewLoginRequired}
-          onRequireSignIn={requireReviewSignIn}
-          onSubmit={submitProductReview}
-          onClose={() => setReviewProduct(null)}
-        />
+        <Suspense fallback={null}>
+          <ReviewForm
+            product={reviewProduct}
+            account={account}
+            loginRequired={reviewLoginRequired}
+            onRequireSignIn={requireReviewSignIn}
+            onSubmit={submitProductReview}
+            onClose={() => setReviewProduct(null)}
+          />
+        </Suspense>
       )}
     </>
   );

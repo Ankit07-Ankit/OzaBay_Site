@@ -36,6 +36,21 @@ const orderItemSchema = new mongoose.Schema(
         default: null,
       },
     },
+    cancellationRequest: {
+      status: {
+        type: String,
+        enum: ["none", "requested", "approved", "rejected"],
+        default: "none",
+      },
+      reason: { type: String, default: "" },
+      requestedAt: { type: Date, default: null },
+      reviewedAt: { type: Date, default: null },
+      reviewedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+    },
     returnRequest: {
       status: {
         type: String,

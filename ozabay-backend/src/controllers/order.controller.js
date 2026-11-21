@@ -423,7 +423,7 @@ const cancelCustomerOrder = async (req, res, next) => {
     const currentOrder = await Order.findOne({
       _id: req.params.orderId,
       customerId: req.authUserId,
-    }).select("orderStatus paymentStatus paymentMethod total razorpayOrderId");
+    }).select("orderStatus paymentStatus paymentMethod total razorpayOrderId items.fulfillmentStatus");
     if (!currentOrder) {
       return res.status(404).json({ message: "Order not found." });
     }
@@ -437,6 +437,14 @@ const cancelCustomerOrder = async (req, res, next) => {
       return res.status(200).json({
         message: "This order has already been cancelled.",
         order: await Order.findById(currentOrder._id).lean(),
+      });
+    }
+    if (
+      currentOrder.orderStatus === "Out for delivery"
+      || currentOrder.items.some((item) => item.fulfillmentStatus === "Out for delivery")
+    ) {
+      return res.status(409).json({
+        message: "An item is out for delivery. Request cancellation for that product instead.",
       });
     }
 
@@ -627,18 +635,84 @@ const requestCustomerReturn = async (req, res, next) => {
   }
 };
 
+const requestCustomerItemCancellation = async (req, res, next) => {
+  try {
+    if (
+      !mongoose.Types.ObjectId.isValid(req.params.orderId)
+      || !mongoose.Types.ObjectId.isValid(req.params.productId)
+    ) {
+      return res.status(400).json({ message: "Invalid order or product identifier." });
+    }
+    const { error, value } = returnRequestSchema.validate(req.body, {
+      abortEarly: true,
+      convert: true,
+    });
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
+    }
+
+    const productId = new mongoose.Types.ObjectId(req.params.productId);
+    const order = await Order.findOneAndUpdate(
+      {
+        _id: req.params.orderId,
+        customerId: req.authUserId,
+        orderStatus: { $nin: ["Awaiting payment", "Payment failed", "Cancelled"] },
+        items: {
+          $elemMatch: {
+            productId,
+            fulfillmentStatus: "Out for delivery",
+            "cancellationRequest.status": { $in: ["none", "rejected", null] },
+          },
+        },
+      },
+      {
+        $set: {
+          "items.$[item].cancellationRequest.status": "requested",
+          "items.$[item].cancellationRequest.reason": value.reason,
+          "items.$[item].cancellationRequest.requestedAt": new Date(),
+          "items.$[item].cancellationRequest.reviewedAt": null,
+          "items.$[item].cancellationRequest.reviewedBy": null,
+        },
+      },
+      {
+        arrayFilters: [
+          {
+            "item.productId": productId,
+            "item.fulfillmentStatus": "Out for delivery",
+            "item.cancellationRequest.status": { $in: ["none", "rejected", null] },
+          },
+        ],
+        new: true,
+        runValidators: true,
+      },
+    );
+    if (!order) {
+      return res.status(409).json({
+        message: "Cancellation requests are available only for Out for delivery products without a pending request.",
+      });
+    }
+    return res.status(200).json({
+      message: "Cancellation request sent to the vendor for review.",
+      order: formatCustomerOrder(order.toObject()),
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const deriveOrderStatus = (items = [], fallback = "Received") => {
   const statuses = items
     .map((item) => item.fulfillmentStatus || fallback)
     .filter((status) => status && status !== "Payment failed");
   if (!statuses.length) return fallback;
-  if (statuses.every((status) => status === "Delivered")) return "Delivered";
-  if (statuses.every((status) => status === "Cancelled")) return "Cancelled";
-  if (statuses.some((status) => status === "Out for delivery")) return "Out for delivery";
-  if (statuses.some((status) => status === "Shipped")) return "Shipped";
-  if (statuses.some((status) => status === "Crafting")) return "Crafting";
-  if (statuses.some((status) => status === "Received")) return "Received";
-  return statuses[0];
+  const activeStatuses = statuses.filter((status) => status !== "Cancelled");
+  if (!activeStatuses.length) return "Cancelled";
+  if (activeStatuses.every((status) => status === "Delivered")) return "Delivered";
+  if (activeStatuses.some((status) => status === "Out for delivery")) return "Out for delivery";
+  if (activeStatuses.some((status) => status === "Shipped")) return "Shipped";
+  if (activeStatuses.some((status) => status === "Crafting")) return "Crafting";
+  if (activeStatuses.some((status) => status === "Received")) return "Received";
+  return activeStatuses[0];
 };
 
 const formatCustomerOrder = (order) => {
@@ -661,6 +735,7 @@ const listCustomerOrders = async (req, res, next) => {
     const orders = await Order.find({ customerId: req.authUserId })
       .sort({ createdAt: -1 })
       .lean();
+    res.set("Cache-Control", "no-store");
     return res.status(200).json({ orders: orders.map(formatCustomerOrder) });
   } catch (error) {
     return next(error);
@@ -831,6 +906,7 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
             productId,
             vendorId: req.authUserId,
             fulfillmentStatus: { $nin: ["Cancelled", status] },
+            "cancellationRequest.status": { $ne: "requested" },
           },
         },
       },
@@ -843,6 +919,7 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
             "item.productId": productId,
             "item.vendorId": req.authUserId,
             "item.fulfillmentStatus": { $nin: ["Cancelled", status] },
+            "item.cancellationRequest.status": { $ne: "requested" },
           },
         ],
         new: true,
@@ -1098,6 +1175,115 @@ const reviewVendorReturnRequest = async (req, res, next) => {
   }
 };
 
+const reviewVendorItemCancellation = async (req, res, next) => {
+  try {
+    if (
+      !mongoose.Types.ObjectId.isValid(req.params.orderId)
+      || !mongoose.Types.ObjectId.isValid(req.params.productId)
+    ) {
+      return res.status(400).json({ message: "Invalid order or product identifier." });
+    }
+    const { error, value } = vendorReturnDecisionSchema.validate(req.body, {
+      abortEarly: true,
+    });
+    if (error) {
+      return res.status(400).json({ message: error.details[0].message });
+    }
+
+    const productId = new mongoose.Types.ObjectId(req.params.productId);
+    const reviewedAt = new Date();
+    const order = await Order.findOneAndUpdate(
+      {
+        _id: req.params.orderId,
+        orderStatus: { $nin: ["Awaiting payment", "Payment failed", "Cancelled"] },
+        items: {
+          $elemMatch: {
+            productId,
+            vendorId: req.authUserId,
+            fulfillmentStatus: "Out for delivery",
+            "cancellationRequest.status": "requested",
+          },
+        },
+      },
+      {
+        $set: {
+          "items.$[item].cancellationRequest.status": value.status,
+          "items.$[item].cancellationRequest.reviewedAt": reviewedAt,
+          "items.$[item].cancellationRequest.reviewedBy": req.authUserId,
+          ...(value.status === "approved"
+            ? { "items.$[item].fulfillmentStatus": "Cancelled" }
+            : {}),
+        },
+      },
+      {
+        arrayFilters: [
+          {
+            "item.productId": productId,
+            "item.vendorId": req.authUserId,
+            "item.fulfillmentStatus": "Out for delivery",
+            "item.cancellationRequest.status": "requested",
+          },
+        ],
+        new: true,
+        runValidators: true,
+      },
+    );
+    if (!order) {
+      return res.status(409).json({
+        message: "This product has no pending cancellation request to review.",
+      });
+    }
+
+    const allItemsCancelled = order.items.every(
+      (item) => item.fulfillmentStatus === "Cancelled",
+    );
+    const orderUpdate = {};
+    if (allItemsCancelled) {
+      orderUpdate.orderStatus = "Cancelled";
+      orderUpdate.cancelledAt = reviewedAt;
+      orderUpdate.cancellationRequestedBy = "customer";
+    }
+    if (value.status === "approved" && order.paymentStatus === "paid") {
+      order.paymentDetails.refundStatus = "pending";
+      order.paymentDetails.refundNote =
+        `Manual refund follow-up required for cancelled product ${order.items.find((item) => String(item.productId) === String(productId))?.name || String(productId)} (${order.items.find((item) => String(item.productId) === String(productId))?.lineTotal || 0}).`;
+      orderUpdate["paymentDetails.refundStatus"] = "pending";
+      orderUpdate["paymentDetails.refundNote"] = order.paymentDetails.refundNote;
+    }
+    const vendorItems = order.items.filter(
+      (item) => String(item.vendorId) === String(req.authUserId),
+    );
+    const orderStatus = deriveOrderStatus(order.items, order.orderStatus);
+    if (orderStatus !== order.orderStatus) orderUpdate.orderStatus = orderStatus;
+    const savedOrder = Object.keys(orderUpdate).length
+      ? await Order.findOneAndUpdate(
+          { _id: order._id, orderStatus: { $ne: "Cancelled" } },
+          { $set: orderUpdate },
+          { new: true, runValidators: true },
+        )
+      : order;
+    if (!savedOrder) {
+      return res.status(409).json({
+        message: "This order changed while the cancellation request was being reviewed.",
+      });
+    }
+    const savedVendorItems = savedOrder.items.filter(
+      (item) => String(item.vendorId) === String(req.authUserId),
+    );
+    return res.status(200).json({
+      message: `Cancellation request ${value.status}.`,
+      order: {
+        ...savedOrder.toObject(),
+        items: savedVendorItems,
+        total: savedVendorItems.reduce((sum, item) => sum + item.lineTotal, 0),
+        orderStatus: deriveOrderStatus(savedVendorItems, savedOrder.orderStatus),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export {
   collectVendorCashOnDelivery,
   createOrder,
@@ -1105,6 +1291,8 @@ export {
   listCustomerOrders,
   listVendorOrders,
   requestCustomerReturn,
+  requestCustomerItemCancellation,
+  reviewVendorItemCancellation,
   reviewVendorReturnRequest,
   updateVendorOrderItemStatus,
   updateVendorOrderStatus,

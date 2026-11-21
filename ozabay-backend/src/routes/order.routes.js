@@ -3,6 +3,7 @@ import {
   createOrder,
   cancelCustomerOrder,
   listCustomerOrders,
+  requestCustomerItemCancellation,
   requestCustomerReturn,
   verifyPayment,
 } from "../controllers/order.controller.js";
@@ -14,6 +15,10 @@ const orderRouter = Router();
 orderRouter.use(requireAuth, requireUser);
 orderRouter.get("/mine", listCustomerOrders);
 orderRouter.post("/:orderId/cancel", cancelCustomerOrder);
+orderRouter.post(
+  "/:orderId/items/:productId/cancel-request",
+  requestCustomerItemCancellation,
+);
 orderRouter.post("/:orderId/items/:productId/return", requestCustomerReturn);
 orderRouter.post("/", createOrder);
 orderRouter.post("/verify-payment", verifyPayment);

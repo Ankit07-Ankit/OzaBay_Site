@@ -12,6 +12,7 @@ import User from "../models/user.model.js";
 import {
   collectVendorCashOnDelivery,
   listVendorOrders,
+  reviewVendorItemCancellation,
   reviewVendorReturnRequest,
   updateVendorOrderItemStatus,
   updateVendorOrderStatus,
@@ -48,6 +49,10 @@ vendorRouter.patch(
 vendorRouter.patch(
   "/orders/:orderId/items/:productId/return",
   reviewVendorReturnRequest,
+);
+vendorRouter.patch(
+  "/orders/:orderId/items/:productId/cancel-request",
+  reviewVendorItemCancellation,
 );
 vendorRouter.post("/products", handleVendorProductUpload, createProduct);
 vendorRouter.patch("/products/:productId", handleVendorProductUpload, updateProduct);

@@ -91,7 +91,9 @@ export default function AccountSection({
   onOpenVendorPanel,
   onLogout,
   orders = [],
+  onRefreshOrders,
   onCancelOrder,
+  onRequestOrderItemCancellation,
   onRequestOrderItemReturn,
   onListSupportMessages,
   onCreateSupportMessage,
@@ -121,6 +123,7 @@ export default function AccountSection({
   const [cancelOrderError, setCancelOrderError] = useState("");
   const [cancelOrderNotice, setCancelOrderNotice] = useState("");
   const [cancellingOrderId, setCancellingOrderId] = useState("");
+  const [requestingCancellationItemId, setRequestingCancellationItemId] = useState("");
   const [confirmCancelOrderId, setConfirmCancelOrderId] = useState("");
   const [returningItemId, setReturningItemId] = useState("");
   const [returnFormKey, setReturnFormKey] = useState(""); // "orderId:productId"
@@ -163,6 +166,33 @@ export default function AccountSection({
       );
     } finally {
       setCancellingOrderId("");
+    }
+  };
+
+  const requestItemCancellation = async (order, item) => {
+    const reason = window.prompt(
+      `Optional: why are you requesting cancellation of ${item.name}?`,
+    );
+    if (reason === null) return;
+    const itemKey = `${order.id}:${item.productId}`;
+    setCancelOrderError("");
+    setCancelOrderNotice("");
+    setRequestingCancellationItemId(itemKey);
+    try {
+      const result = await onRequestOrderItemCancellation(
+        order.id,
+        item.productId,
+        reason.trim(),
+      );
+      setCancelOrderNotice(
+        result.message || "Cancellation request sent to the vendor.",
+      );
+    } catch (requestError) {
+      setCancelOrderError(
+        requestError.message || "Unable to request product cancellation.",
+      );
+    } finally {
+      setRequestingCancellationItemId("");
     }
   };
 
@@ -1974,6 +2004,14 @@ export default function AccountSection({
                                       )}
                                     </small>
                                   )}
+                                  {item.cancellationRequest?.status
+                                    && item.cancellationRequest.status !== "none" && (
+                                    <small className={`account-section__cancellation-status account-section__cancellation-status--${item.cancellationRequest.status}`}>
+                                      Cancellation {item.cancellationRequest.status}
+                                      {item.cancellationRequest.reason
+                                        && ` · ${item.cancellationRequest.reason}`}
+                                    </small>
+                                  )}
                                   {order.paymentMethod ===
                                     "Cash on delivery" && (
                                     <small
@@ -2000,6 +2038,25 @@ export default function AccountSection({
                                 </span>
                                 <span>×{item.qty}</span>
                                 <span>{money(item.priceValue * item.qty)}</span>
+                                {item.fulfillmentStatus === "Out for delivery"
+                                  && item.cancellationRequest?.status !== "requested"
+                                  && item.cancellationRequest?.status !== "approved"
+                                  && onRequestOrderItemCancellation && (
+                                    <button
+                                      type="button"
+                                      className="account-section__cancel-item-request"
+                                      disabled={requestingCancellationItemId === itemKey}
+                                      onClick={() =>
+                                        requestItemCancellation(order, item)
+                                      }
+                                    >
+                                      {requestingCancellationItemId === itemKey
+                                        ? "Sending request…"
+                                        : item.cancellationRequest?.status === "rejected"
+                                          ? "Request cancellation again"
+                                          : "Request cancellation"}
+                                    </button>
+                                  )}
                                 {item.fulfillmentStatus === "Delivered" &&
                                   item.returnRequest?.status !== "requested" &&
                                   item.returnRequest?.status !== "approved" &&
@@ -2355,11 +2412,14 @@ export default function AccountSection({
                           type="button"
                           className="account-section__track-order"
                           aria-expanded={trackingOrderId === order.id}
-                          onClick={() =>
+                          onClick={() => {
                             setTrackingOrderId((current) =>
                               current === order.id ? "" : order.id,
-                            )
-                          }
+                            );
+                            if (trackingOrderId !== order.id) {
+                              onRefreshOrders?.();
+                            }
+                          }}
                         >
                           {trackingOrderId === order.id
                             ? "Hide tracking"
@@ -2367,6 +2427,9 @@ export default function AccountSection({
                         </button>
                         {order.status !== "Delivered" &&
                           order.status !== "Cancelled" &&
+                          !(order.items || []).some(
+                            (item) => item.fulfillmentStatus === "Out for delivery",
+                          ) &&
                           !(order.items || []).some(
                             (item) => item.fulfillmentStatus === "Delivered",
                           ) &&
@@ -2423,6 +2486,13 @@ export default function AccountSection({
                       )}
                       {trackingOrderId === order.id && (
                         <div className="account-section__order-tracking">
+                          <button
+                            type="button"
+                            className="account-section__track-refresh"
+                            onClick={() => onRefreshOrders?.()}
+                          >
+                            Refresh tracking status
+                          </button>
                           {/* Status banner */}
                           <div
                             className={`account-section__tracking-banner ${

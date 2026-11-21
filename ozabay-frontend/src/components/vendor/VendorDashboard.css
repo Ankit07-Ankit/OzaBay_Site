@@ -1131,6 +1131,20 @@
   color: #a4473d;
 }
 
+.vendor-cancellation-status {
+  color: #936c24;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.vendor-cancellation-status--approved {
+  color: #39744c;
+}
+
+.vendor-cancellation-status--rejected {
+  color: #a4473d;
+}
+
 .vendor-return-actions {
   display: flex;
   flex-wrap: wrap;

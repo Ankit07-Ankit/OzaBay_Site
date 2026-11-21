@@ -24,6 +24,6 @@ The admin login stays unavailable until both settings are configured. Admin sess
 
 Set `GOOGLE_CLIENT_ID` in `ozabay-backend/.env` to your OAuth 2.0 web client ID. The frontend retrieves this public client ID from the backend, so it does not need a separate Vite setting. Add the frontend's origin to that Google OAuth client's authorized JavaScript origins. Google sign-in creates a verified user account on first use and signs in existing accounts with the matching verified email.
 
-Customers can cancel orders before any item is marked delivered. Cancelled orders remain in the admin order history; if a Razorpay payment was captured, the admin panel flags it for manual refund follow-up.
+Customers can cancel orders before any item is out for delivery. For an item already out for delivery, customers can submit a product-specific cancellation request for vendor review. If the vendor approves a request for a paid order, the admin panel flags the product refund for manual follow-up.
 
 Customers can request a return for each delivered product within seven days of delivery. Vendors review return requests in Orders & Sales, and administrators can see each request's status in the order list.
