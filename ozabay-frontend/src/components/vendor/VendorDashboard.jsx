@@ -506,7 +506,11 @@ export default function VendorDashboard({ account, request }) {
       return;
     }
     setSaving(true);
-    setNotice("Uploading product media...");
+    setNotice(
+      newImages.length > 1
+        ? `Uploading ${newImages.length} product images together...`
+        : "Uploading product media...",
+    );
     const pendingUploadIds = [];
     let productSaved = false;
     try {
@@ -548,10 +552,14 @@ export default function VendorDashboard({ account, request }) {
         return completed.mediaPath;
       };
 
-      const uploadedImages = [];
-      for (const image of newImages) {
-        uploadedImages.push(await uploadFile(image, "images"));
-      }
+      const imageUploadResults = await Promise.allSettled(
+        newImages.map((image) => uploadFile(image, "images")),
+      );
+      const failedImageUpload = imageUploadResults.find(
+        (result) => result.status === "rejected",
+      );
+      if (failedImageUpload) throw failedImageUpload.reason;
+      const uploadedImages = imageUploadResults.map((result) => result.value);
       const uploadedVideo = newVideo ? await uploadFile(newVideo, "video") : "";
       const payload = editingProduct
         ? {
@@ -1063,8 +1071,8 @@ export default function VendorDashboard({ account, request }) {
               onClick={() => imageInputRef.current?.click()}
             >
               <span className="v-file-dropzone__icon">📷</span>
-              <strong>Click to upload product images</strong>
-              <small>JPEG, PNG, WebP · Max 5 images · Up to 50 MB each</small>
+              <strong>Choose up to 5 product images</strong>
+              <small>Select multiple files together · JPEG, PNG, WebP · Up to 50 MB each</small>
             </button>
 
             <p className="vendor-product-form__hint">
