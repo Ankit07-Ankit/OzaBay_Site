@@ -1,25 +1,48 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 
-export default function TiltCard({children,className=""}){
-  const ref=useRef(null);
-  const target=useRef({x:0,y:0,lift:0,mx:50,my:50});
-  const current=useRef({x:0,y:0,lift:0});
-  useEffect(()=>{
-    let frame;
-    const tick=()=>{
-      const el=ref.current;
-      if(el){
-        current.current.x+=(target.current.x-current.current.x)*.075;
-        current.current.y+=(target.current.y-current.current.y)*.075;
-        current.current.lift+=(target.current.lift-current.current.lift)*.08;
-        el.style.transform=`perspective(1400px) translate3d(0,${-current.current.lift}px,0) rotateX(${current.current.y}deg) rotateY(${current.current.x}deg)`;
-      }
-      frame=requestAnimationFrame(tick);
-    };
-    frame=requestAnimationFrame(tick);
-    return()=>cancelAnimationFrame(frame);
-  },[]);
-  const move=e=>{const el=ref.current;if(!el)return;const r=el.getBoundingClientRect();const px=(e.clientX-r.left)/r.width;const py=(e.clientY-r.top)/r.height;target.current={x:(px-.5)*2.6,y:(py-.5)*-2.6,lift:2,mx:px*100,my:py*100};el.style.setProperty("--pointer-x",`${px*100}%`);el.style.setProperty("--pointer-y",`${py*100}%`)};
-  const leave=()=>{const el=ref.current;target.current={x:0,y:0,lift:0,mx:50,my:50};if(el){el.style.setProperty("--pointer-x","50%");el.style.setProperty("--pointer-y","50%")}};
-  return <div ref={ref} className={`tilt-card ${className}`} onMouseMove={move} onMouseLeave={leave}>{children}</div>
+export default function TiltCard({ children, className = "" }) {
+  const ref = useRef(null);
+  const frame = useRef(0);
+  const pointer = useRef({ x: 50, y: 50, clientX: 0, clientY: 0 });
+
+  const move = (event) => {
+    const element = ref.current;
+    if (!element || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    pointer.current.clientX = event.clientX;
+    pointer.current.clientY = event.clientY;
+    if (frame.current) return;
+
+    frame.current = window.requestAnimationFrame(() => {
+      frame.current = 0;
+      const bounds = element.getBoundingClientRect();
+      const x = (pointer.current.clientX - bounds.left) / bounds.width;
+      const y = (pointer.current.clientY - bounds.top) / bounds.height;
+      pointer.current.x = x * 100;
+      pointer.current.y = y * 100;
+      element.style.setProperty("--pointer-x", `${pointer.current.x}%`);
+      element.style.setProperty("--pointer-y", `${pointer.current.y}%`);
+      element.style.transform = `perspective(1400px) translate3d(0, -2px, 0) rotateX(${(y - 0.5) * -5.2}deg) rotateY(${(x - 0.5) * 5.2}deg)`;
+    });
+  };
+
+  const reset = () => {
+    if (frame.current) window.cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    if (!ref.current) return;
+    ref.current.style.transform = "";
+    ref.current.style.setProperty("--pointer-x", "50%");
+    ref.current.style.setProperty("--pointer-y", "50%");
+  };
+
+  return (
+    <div
+      ref={ref}
+      className={`tilt-card ${className}`}
+      onMouseMove={move}
+      onMouseLeave={reset}
+    >
+      {children}
+    </div>
+  );
 }

@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { money } from "../../utils/formatCurrency.js";
 
 export default function CustomDesignUpload({onConfirm}){
   const inputRef=useRef(null);
+  const previewUrlRef=useRef(null);
   const [stage,setStage]=useState("idle");
   const [fileName,setFileName]=useState("");
   const [previewUrl,setPreviewUrl]=useState(null);
@@ -10,6 +11,10 @@ export default function CustomDesignUpload({onConfirm}){
   const [dragOver,setDragOver]=useState(false);
   const [artisan,setArtisan]=useState(null);
   const [budget,setBudget]=useState(0);
+
+  useEffect(()=>()=>{
+    if(previewUrlRef.current)URL.revokeObjectURL(previewUrlRef.current);
+  },[]);
 
   const ARTISANS=[
     {name:"Meera Joshi",craft:"Blue Pottery · Jaipur"},
@@ -20,9 +25,10 @@ export default function CustomDesignUpload({onConfirm}){
 
   const handleFile=file=>{
     if(!file||!file.type.startsWith("image/"))return;
-    const reader=new FileReader();
-    reader.onload=()=>{setPreviewUrl(reader.result);setFileName(file.name);setStage("preview")};
-    reader.readAsDataURL(file);
+    if(previewUrlRef.current)URL.revokeObjectURL(previewUrlRef.current);
+    const url=URL.createObjectURL(file);
+    previewUrlRef.current=url;
+    setPreviewUrl(url);setFileName(file.name);setStage("preview");
   };
   const onInputChange=e=>handleFile(e.target.files?.[0]);
   const onDrop=e=>{e.preventDefault();setDragOver(false);handleFile(e.dataTransfer.files?.[0])};
@@ -41,6 +47,8 @@ export default function CustomDesignUpload({onConfirm}){
   };
 
   const reset=()=>{
+    if(previewUrlRef.current)URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current=null;
     setStage("idle");setPreviewUrl(null);setFileName("");setNote("");setArtisan(null);setBudget(0);
     if(inputRef.current)inputRef.current.value="";
   };

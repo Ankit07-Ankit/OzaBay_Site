@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import LazyVideo from "../shared/LazyVideo.jsx";
 import "./Hero.css";
 
 const SLIDES = [
@@ -15,12 +16,13 @@ const Arrow = ({ dir = "right" }) => (
 
 export default function Hero({ onExploreClick, onCreateClick }) {
   const [index, setIndex] = useState(0);
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
-  const [pointer, setPointer] = useState({ x: 50, y: 50 });
   const frame = useRef(null);
+  const moveFrame = useRef(0);
+  const pointerPosition = useRef({ x: 50, y: 50 });
   const slide = SLIDES[index];
 
   useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = setInterval(() => setIndex((i) => (i + 1) % SLIDES.length), 6500);
     return () => clearInterval(id);
   }, []);
@@ -28,23 +30,47 @@ export default function Hero({ onExploreClick, onCreateClick }) {
   const move = (e) => {
     if (!frame.current || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const r = frame.current.getBoundingClientRect();
-    const px = ((e.clientX - r.left) / r.width) * 100;
-    const py = ((e.clientY - r.top) / r.height) * 100;
-    setPointer({ x: px, y: py });
-    setTilt({ x: ((px / 100) - 0.5) * 5.5, y: ((py / 100) - 0.5) * -4 });
+    pointerPosition.current = {
+      x: ((e.clientX - r.left) / r.width) * 100,
+      y: ((e.clientY - r.top) / r.height) * 100,
+    };
+    if (moveFrame.current) return;
+    moveFrame.current = window.requestAnimationFrame(() => {
+      moveFrame.current = 0;
+      const { x, y } = pointerPosition.current;
+      frame.current?.style.setProperty("--mx", `${x}%`);
+      frame.current?.style.setProperty("--my", `${y}%`);
+      const tiltX = (x / 100 - 0.5) * 5.5;
+      const tiltY = (y / 100 - 0.5) * -4;
+      frame.current?.style.setProperty("--tilt-x", `${tiltX}deg`);
+      frame.current?.style.setProperty("--tilt-y", `${tiltY}deg`);
+      frame.current?.style.setProperty("--tilt-offset-x", `${tiltX * -1.1}px`);
+      frame.current?.style.setProperty("--tilt-offset-y", `${tiltY * 1.1}px`);
+    });
   };
 
   const reset = () => {
-    setTilt({ x: 0, y: 0 });
-    setPointer({ x: 50, y: 50 });
+    if (moveFrame.current) window.cancelAnimationFrame(moveFrame.current);
+    moveFrame.current = 0;
+    pointerPosition.current = { x: 50, y: 50 };
+    frame.current?.style.setProperty("--mx", "50%");
+    frame.current?.style.setProperty("--my", "50%");
+    frame.current?.style.setProperty("--tilt-x", "0deg");
+    frame.current?.style.setProperty("--tilt-y", "0deg");
+    frame.current?.style.setProperty("--tilt-offset-x", "0px");
+    frame.current?.style.setProperty("--tilt-offset-y", "0px");
   };
 
+  useEffect(() => () => {
+    if (moveFrame.current) window.cancelAnimationFrame(moveFrame.current);
+  }, []);
+
   return (
-    <section id="home" ref={frame} className="ozb-hero" onMouseMove={move} onMouseLeave={reset} style={{ "--mx": `${pointer.x}%`, "--my": `${pointer.y}%` }} aria-label="Featured OzaBay handmade pieces">
+    <section id="home" ref={frame} className="ozb-hero" onMouseMove={move} onMouseLeave={reset} aria-label="Featured OzaBay handmade pieces">
       <div className="ozb-hero__media" aria-hidden="true">
         {SLIDES.map((s, i) => (
-          <div key={s.id} className={`ozb-hero__slide ${i === index ? "is-active" : ""}`} style={{ backgroundImage: `url(${s.image})`, transform: `scale(1.045) perspective(1500px) rotateX(${tilt.y}deg) rotateY(${tilt.x}deg) translate3d(${tilt.x * -1.1}px, ${tilt.y * 1.1}px, 0)` }}>
-            {s.video && <video className="ozb-hero__video" src={s.video} autoPlay muted loop playsInline preload="auto" poster={s.image} aria-hidden="true" />}
+          <div key={s.id} className={`ozb-hero__slide ${i === index ? "is-active" : ""}`} style={{ backgroundImage: i === index || i === (index + 1) % SLIDES.length ? `url(${s.image})` : undefined }}>
+            {s.video && <LazyVideo className="ozb-hero__video" src={s.video} active={i === index} poster={s.image} aria-hidden="true" />}
           </div>
         ))}
         <div className="ozb-hero__media-glow" />

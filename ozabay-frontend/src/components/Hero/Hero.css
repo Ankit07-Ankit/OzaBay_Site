@@ -12,6 +12,12 @@
    ========================================================= */
 
 .ozb-hero {
+    --mx: 50%;
+    --my: 50%;
+    --tilt-x: 0deg;
+    --tilt-y: 0deg;
+    --tilt-offset-x: 0px;
+    --tilt-offset-y: 0px;
     --hero-navy: #071a36;
     --hero-navy-deep: #051228;
     --hero-gold: #c9a45c;
@@ -58,9 +64,7 @@
 
     opacity: 0;
     transform-style: preserve-3d;
-    will-change: transform, opacity;
-
-    filter: saturate(0.96) contrast(1.02);
+    transform: scale(1.045) perspective(1500px) rotateX(var(--tilt-y)) rotateY(var(--tilt-x)) translate3d(var(--tilt-offset-x), var(--tilt-offset-y), 0);
 
     transition:
         opacity 1s ease,
@@ -69,6 +73,7 @@
 
 .ozb-hero__slide.is-active {
     opacity: 1;
+    will-change: transform, opacity;
 }
 
 .ozb-hero__slide[style*="background-image"] {
@@ -87,7 +92,6 @@
 
     object-fit: cover;
 
-    filter: saturate(0.9) contrast(1.03);
 }
 
 

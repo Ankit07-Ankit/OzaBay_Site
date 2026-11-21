@@ -33,7 +33,7 @@ export default function RegionalCrafts({onRegion,onProduct}){
           <div className="india-map-help"><span>● Hover a state</span><span>↗ Click to explore</span><span>⌁ Product edits open on the right</span></div>
         </div>
         <aside className="india-craft-detail">
-          <div className="india-craft-detail__image"><img src={selected.image} alt=""/><div className="india-craft-detail__image-wash"/><span>{selected.name.toUpperCase()}</span></div>
+          <div className="india-craft-detail__image"><img src={selected.image} alt="" loading="lazy" decoding="async"/><div className="india-craft-detail__image-wash"/><span>{selected.name.toUpperCase()}</span></div>
           <div className="india-craft-detail__body">
             <div className="india-craft-detail__meta"><span>{selected.code}</span><small>{selected.capital}</small></div>
             <p className="eyebrow">Selected state</p>
@@ -41,7 +41,7 @@ export default function RegionalCrafts({onRegion,onProduct}){
             <p className="india-craft-cities">Craft centres · {selected.cities}</p>
             <div className="india-craft-list">{selected.crafts.map((craft,i)=><button key={craft} onClick={()=>onRegion?.({name:selected.name,filters:[],query:craft})}><span>0{i+1}</span><strong>{craft}</strong><i>↗</i></button>)}</div>
             <div className="india-product-rail-head"><span>AVAILABLE ON OZABAY</span><small>{selectedProducts.length} regional edits</small></div>
-            <div className="india-product-rail">{selectedProducts.map(product=><button key={product.id} onClick={()=>onProduct?.(product)}><img src={product.image} alt=""/><span>{product.craft}</span><strong>{product.price}</strong></button>)}</div>
+            <div className="india-product-rail">{selectedProducts.map(product=><button key={product.id} onClick={()=>onProduct?.(product)}><img src={product.image} alt="" loading="lazy" decoding="async"/><span>{product.craft}</span><strong>{product.price}</strong></button>)}</div>
             <button className="hero-action india-shop-state" onClick={()=>onRegion?.({name:selected.name,filters:[],query:null})}>Shop {selected.name} craft ↗</button>
           </div>
         </aside>

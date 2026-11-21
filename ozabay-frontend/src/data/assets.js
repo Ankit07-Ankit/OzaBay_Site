@@ -8,14 +8,6 @@ export const IMG = {
 
 // Product images from public/images, organized by category.
 export const PRODUCT_IMAGES = {
-  bluePottery: [
-    "/images/bp1.jpg",
-    "/images/bp2.jpg",
-    "/images/bp3.jpg",
-    "/images/bp4.jpg",
-    "/images/bp5.jpg",
-    "/images/bp6.jpg",
-  ],
   ceramics: [
     "/images/ceramics1.jpg",
     "/images/ceramics2.jpg",
@@ -30,13 +22,6 @@ export const PRODUCT_IMAGES = {
     "/images/mc3.jpg",
     "/images/mc4.jpg",
     "/images/mc5.jpg",
-  ],
-  terracotta: [
-    "/images/teracotta1.jpg",
-    "/images/teracotta2.jpg",
-    "/images/teracotta3.jpg",
-    "/images/teracotta4.jpg",
-    "/images/teracotta5.jpg",
   ],
   textiles: [
     "/images/textile1.jpg",

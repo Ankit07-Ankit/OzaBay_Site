@@ -4,13 +4,8 @@ import Navbar from "./components/Navbar/Navbar.jsx";
 import Hero from "./components/Hero/Hero.jsx";
 import Reveal from "./components/shared/Reveal.jsx";
 import TiltCard from "./components/shared/TiltCard.jsx";
-import BuilderGroup from "./components/custom/BuilderGroup.jsx";
-import CustomLivePreview from "./components/custom/CustomLivePreview.jsx";
 import CustomDesignUpload from "./components/custom/CustomDesignUpload.jsx";
-import GiftBuilder from "./components/custom/GiftBuilder.jsx";
-import StateCraftMarketplace from "./components/regional/StateCraftMarketplace.jsx";
 import RegionalCrafts from "./components/regional/RegionalCrafts.jsx";
-import CuratedEdits from "./components/marketing/CuratedEdits.jsx";
 import TrustStrip from "./components/marketing/TrustStrip.jsx";
 import CraftFilm from "./components/marketing/CraftFilm.jsx";
 import MakerStories from "./components/marketing/MakerStories.jsx";
@@ -24,9 +19,10 @@ import VendorDashboard from "./components/vendor/VendorDashboard.jsx";
 import { IMG } from "./data/assets.js";
 import { INDIA_CRAFTS } from "./data/regionalCrafts.js";
 import { REGIONAL_CRAFT_PRODUCTS } from "./data/regionalCraftProducts.js";
-import { ARTISANS, COLLECTIONS, CUSTOM_PRICES } from "./data/siteContent.js";
+import { ARTISANS, CUSTOM_PRICES } from "./data/siteContent.js";
 import { money } from "./utils/formatCurrency.js";
 import { apiUrl } from "./utils/api.js";
+import LazyVideo from "./components/shared/LazyVideo.jsx";
 import "./index.css";
 import "./premium-upgrades.css";
 
@@ -205,8 +201,7 @@ const normalizeSearchText = (value) =>
     .toLowerCase()
     .trim();
 
-const getProductSearchScore = (product, query) => {
-  const normalizedQuery = normalizeSearchText(query);
+const getProductSearchScore = (product, normalizedQuery) => {
   if (!normalizedQuery) return 0;
 
   const fields = {
@@ -555,7 +550,7 @@ export default function App() {
   const [tracking, setTracking] = useState("");
   const [reviewProduct, setReviewProduct] = useState(null);
   const [reviewLoginRequired, setReviewLoginRequired] = useState(false);
-  const [scrollProgress, setScrollProgress] = useState(0);
+  const scrollProgressRef = useRef(null);
   const [craftRoute, setCraftRoute] = useState(() => {
     if (account?.accountType === "vendor") return null;
     const m = window.location.pathname.match(/^\/crafts\/([^/]+)/);
@@ -607,37 +602,44 @@ export default function App() {
     () => registeredProducts,
     [registeredProducts],
   );
+  const normalizedQuery = useMemo(() => normalizeSearchText(query), [query]);
+  const scoredProducts = useMemo(
+    () =>
+      catalogProducts.map((product, index) => ({
+        product,
+        index,
+        score: getProductSearchScore(product, normalizedQuery),
+      })),
+    [catalogProducts, normalizedQuery],
+  );
   const searchMatches = useMemo(
     () =>
-      catalogProducts
-        .map((product, index) => ({
-          product,
-          index,
-          score: getProductSearchScore(product, query),
-        }))
+      scoredProducts
         .filter((result) => result.score !== null)
         .sort(
           (first, second) =>
             second.score - first.score || first.index - second.index,
         )
         .map(({ product }) => product),
-    [catalogProducts, query],
+    [scoredProducts],
   );
   const searchResults = searchMatches.slice(0, 12);
   const shown = useMemo(() => {
-    let list = catalogProducts.filter(
-      (p) =>
-        (filter === "All" || p.category === filter) &&
-        (!priceBand ||
-          ((priceBand.min == null || p.priceValue >= priceBand.min) &&
-            (priceBand.max == null || p.priceValue < priceBand.max))) &&
-        getProductSearchScore(p, query) !== null,
-    );
+    let list = scoredProducts
+      .filter(
+        ({ product: p, score }) =>
+          (filter === "All" || p.category === filter) &&
+          (!priceBand ||
+            ((priceBand.min == null || p.priceValue >= priceBand.min) &&
+              (priceBand.max == null || p.priceValue < priceBand.max))) &&
+          score !== null,
+      )
+      .map(({ product }) => product);
     if (sort === "price-low") list.sort((a, b) => a.priceValue - b.priceValue);
     if (sort === "price-high") list.sort((a, b) => b.priceValue - a.priceValue);
     if (sort === "name") list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
-  }, [catalogProducts, filter, query, sort, priceBand]);
+  }, [scoredProducts, filter, sort, priceBand]);
   const visible = shown.slice(0, page * perPage);
   const totalPages = Math.max(1, Math.ceil(shown.length / perPage));
   const cartCount = cart.reduce((n, p) => n + p.qty, 0);
@@ -769,23 +771,6 @@ export default function App() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, [account?.accountType, navigate]);
-  // Pendent images may be saved as .png, .jpg or .jpeg — if one fails to load, try the next.
-  useEffect(() => {
-    const exts = [".png", ".jpg", ".jpeg"];
-    const onErr = (e) => {
-      const t = e.target;
-      if (!t || t.tagName !== "IMG") return;
-      const src = t.getAttribute("src") || "";
-      if (!src.includes("/images/pendents/")) return;
-      const m = src.match(/\.(png|jpe?g)$/i);
-      if (!m) return;
-      const i = exts.indexOf("." + m[1].toLowerCase());
-      if (i < 0 || i >= exts.length - 1) return;
-      t.src = src.slice(0, -m[0].length) + exts[i + 1];
-    };
-    window.addEventListener("error", onErr, true);
-    return () => window.removeEventListener("error", onErr, true);
-  }, []);
   useEffect(() => {
     setPage(1);
   }, [filter, query, sort, priceBand]);
@@ -988,9 +973,16 @@ export default function App() {
     );
   }, [modal]);
   useEffect(() => {
+    let frame = 0;
     const update = () => {
-      const max = document.documentElement.scrollHeight - window.innerHeight;
-      setScrollProgress(max > 0 ? (window.scrollY / max) * 100 : 0);
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const progress = scrollProgressRef.current;
+        if (!progress) return;
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        progress.style.transform = `scaleX(${max > 0 ? window.scrollY / max : 0})`;
+      });
     };
     update();
     window.addEventListener("scroll", update, { passive: true });
@@ -998,6 +990,7 @@ export default function App() {
     return () => {
       window.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
+      if (frame) window.cancelAnimationFrame(frame);
     };
   }, []);
   const addToCartDirect = (p) =>
@@ -1760,11 +1753,10 @@ export default function App() {
   return (
     <>
       <div
+        ref={scrollProgressRef}
         className="scroll-progress"
-        style={{ transform: `scaleX(${scrollProgress / 100})` }}
         aria-hidden="true"
       />
-      <div className="page-vignette" aria-hidden="true" />
       <Navbar
         activeId={vendorRoute ? "dashboard" : "shop"}
         cartCount={cartCount}
@@ -1901,7 +1893,7 @@ export default function App() {
                             setModal({ type: "product", product: p })
                           }
                         >
-                          <img src={p.image} alt={p.name} />
+                          <img loading="lazy" decoding="async" src={p.image} alt={p.name} />
                           <span>{p.category}</span>
                           <strong>{p.name}</strong>
                           <small>{p.price}</small>
@@ -1956,7 +1948,7 @@ export default function App() {
                         >
                           <div className="collection-card__image">
                             {group.coverImage ? (
-                              <img
+                              <img loading="lazy" decoding="async"
                                 src={group.coverImage}
                                 alt={group.category}
                               />
@@ -2126,7 +2118,7 @@ export default function App() {
                               }
                             }}
                           >
-                            <img src={product.image} alt={product.name} />
+                            <img loading="lazy" decoding="async" src={product.image} alt={product.name} />
                             <span className="product-badge">
                               {product.category || "Maker listing"}
                             </span>
@@ -2251,7 +2243,7 @@ export default function App() {
                         }
                       >
                         <div className="artisan-card__image">
-                          <img src={a.image} alt={a.name} />
+                          <img loading="lazy" decoding="async" src={a.image} alt={a.name} />
                           <span>INDIA · {a.city.split(",")[0]}</span>
                         </div>
                         <div className="artisan-card__copy">
@@ -2372,7 +2364,7 @@ export default function App() {
                   ].map(([name, product, text, image, rating], i) => (
                     <article className="review-card" key={name}>
                       <div className="review-card__image">
-                        <img src={image} alt="" />
+                        <img loading="lazy" decoding="async" src={image} alt="" />
                         <span>REVIEW PREVIEW</span>
                       </div>
                       <div className="review-card__body">
@@ -2406,14 +2398,12 @@ export default function App() {
                 </Reveal>
                 <div className="create-grid create-grid--video">
                   <div className="create-video-pane">
-                    <video
+                    <LazyVideo
                       className="create-video"
                       src="/videos/OZABAY.mp4"
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
-                      preload="metadata"
+                      active
+                      poster={IMG.terracotta}
+                      aria-hidden="true"
                     />
                   </div>
                   <div className="create-upload-pane">
@@ -2808,7 +2798,7 @@ export default function App() {
                       <div className="space-wall">
                         <span>OzaBay room preview</span>
                         <div className="space-object">
-                          <img
+                          <img loading="lazy" decoding="async"
                             src={spaceImages[imageIndex]}
                             alt={`${product.name} view ${imageIndex + 1}`}
                             style={{ transform: `scale(${zoom})` }}
@@ -2878,7 +2868,7 @@ export default function App() {
                               }))
                             }
                           >
-                            <img src={image} alt="" />
+                            <img loading="lazy" decoding="async" src={image} alt="" />
                           </button>
                         ))}
                       </div>
@@ -2906,7 +2896,7 @@ export default function App() {
                 </button>
                 <div className="artisan-modal artisan-modal--premium">
                   <div className="artisan-modal__media">
-                    <img src={modal.artisan.image} alt={modal.artisan.name} />
+                    <img loading="lazy" decoding="async" src={modal.artisan.image} alt={modal.artisan.name} />
                     <div className="artisan-modal__media-note">
                       PORTRAIT · REPRESENTATIVE WORKSHOP PROFILE
                     </div>
@@ -3042,7 +3032,7 @@ export default function App() {
                   <div className="gift-result-grid">
                     {modal.items.map((p) => (
                       <article key={p.id}>
-                        <img src={p.image} alt={p.name} />
+                        <img loading="lazy" decoding="async" src={p.image} alt={p.name} />
                         <div>
                           <span>{p.category}</span>
                           <strong>{p.name}</strong>
@@ -3175,7 +3165,7 @@ export default function App() {
                           aria-label={`View ${product.name}, ${product.category}, ${product.price}`}
                           onClick={() => setModal({ type: "product", product })}
                         >
-                          <img src={product.image} alt="" />
+                          <img loading="lazy" decoding="async" src={product.image} alt="" />
                           <span>
                             {product.name}
                             <small>
@@ -3284,7 +3274,7 @@ export default function App() {
                           className="wishlist-item"
                           style={{ "--bag-index": i }}
                         >
-                          <img src={p.image} alt={p.name} />
+                          <img loading="lazy" decoding="async" src={p.image} alt={p.name} />
                           <div className="wishlist-item__info">
                             <strong>{p.name}</strong>
                             <span>
@@ -3347,7 +3337,7 @@ export default function App() {
                           }
                           style={{ "--bag-index": i }}
                         >
-                          <img src={p.image} alt={p.name} />
+                          <img loading="lazy" decoding="async" src={p.image} alt={p.name} />
                           <div className="bag-item__info">
                             <strong>{p.name}</strong>
                             <span>
@@ -3458,7 +3448,7 @@ export default function App() {
                       {cart.map((p) => (
                         <div key={p.id} className="checkout-recap__item">
                           <div className="checkout-recap__img-wrap">
-                            <img src={p.image} alt={p.name} />
+                            <img loading="lazy" decoding="async" src={p.image} alt={p.name} />
                             <span className="checkout-recap__qty">{p.qty}</span>
                           </div>
                           <div className="checkout-recap__info">

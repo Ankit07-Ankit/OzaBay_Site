@@ -3,8 +3,6 @@
 html{scroll-padding-top:82px}
 body{overflow-x:hidden}
 .scroll-progress{position:fixed;z-index:2000;left:0;top:0;width:100%;height:2px;transform-origin:left center;background:var(--gold);box-shadow:0 0 14px rgba(201,164,92,.65);pointer-events:none}
-.page-vignette{position:fixed;inset:0;z-index:1999;pointer-events:none;box-shadow:inset 0 0 90px rgba(7,26,54,.035)}
-.reveal{will-change:transform,opacity}
 .reveal.is-visible{animation:premiumReveal .9s var(--ease-premium) both}
 @keyframes premiumReveal{from{opacity:0;transform:translate3d(0,34px,0) scale(.985);filter:blur(4px)}to{opacity:1;transform:none;filter:blur(0)}}
 .product-grid>.reveal:nth-child(3n+2){transition-delay:.07s}.product-grid>.reveal:nth-child(3n+3){transition-delay:.14s}
@@ -15,7 +13,7 @@ body{overflow-x:hidden}
 .collection-card__image:before,.artisan-card__image:before,.product-image:before{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;background:linear-gradient(120deg,transparent 25%,rgba(255,255,255,.17) 48%,transparent 62%);transform:translateX(-120%);transition:transform 1s var(--ease-premium)}
 .collection-card:hover .collection-card__image:before,.artisan-card:hover .artisan-card__image:before,.product-card:hover .product-image:before{transform:translateX(120%)}
 .product-card{perspective:1400px}
-.product-card .tilt-card{will-change:transform}
+.product-card:hover .tilt-card{will-change:transform}
 .product-image{cursor:pointer;isolation:isolate;box-shadow:0 12px 32px rgba(7,26,54,.05);transition:box-shadow .5s var(--ease-premium),transform .5s var(--ease-premium)}
 .product-card:hover .product-image{box-shadow:0 28px 55px rgba(7,26,54,.14);transform:translateY(-3px)}
 .product-image img{transition:transform 1.1s var(--ease-premium),filter .6s ease!important}
@@ -456,6 +454,14 @@ body{overflow-x:hidden}
 @keyframes indiaTagIn{from{opacity:0;transform:translateX(-50%) translateY(6px) scale(.96)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
 @media(max-width:680px){.india-map-legend{left:9px;bottom:9px;gap:8px;font-size:6px}.india-state-pin{width:34px;height:34px}.india-product-rail{grid-template-columns:repeat(2,1fr)}.india-product-rail button:last-child{display:none}}
 @media(prefers-reduced-motion:reduce){.india-map-stage:before,.india-map-aura,.india-state-pin.is-active i{animation:none}.india-map-image{transition:none}.india-state-pin span{animation:none}}
+
+/* Keep the product viewer's idle rotation in CSS instead of rerendering React each frame. */
+.viewer-orbit{width:min(460px,74%);aspect-ratio:1/1;display:grid;place-items:center;transform:rotateY(var(--viewer-rotation,-18deg));transform-style:preserve-3d}
+.viewer-orbit.is-spinning{animation:viewerOrbit 24s linear infinite;will-change:transform}
+.viewer-object{width:100%!important}
+@keyframes viewerOrbit{from{transform:rotateY(var(--viewer-rotation,-18deg))}to{transform:rotateY(calc(var(--viewer-rotation,-18deg) + 360deg))}}
+@media(max-width:680px){.viewer-orbit{width:82%}}
+@media(prefers-reduced-motion:reduce){.viewer-orbit.is-spinning{animation:none;will-change:auto}}
 
 /* India Craft Atlas — cleaner luxury motion pass */
 .india-craft-explorer{perspective:1600px}
