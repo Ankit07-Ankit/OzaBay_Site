@@ -5,9 +5,14 @@ import User from "../models/user.model.js";
 import VendorProduct from "../models/vendor-product.model.js";
 import UserProduct from "../models/user-product.model.js";
 import {
+  deleteVendorProductMedia,
+  getVendorProductMediaBucket,
+  getVendorProductMediaId,
   getVendorProductMediaPath,
-  getVendorProductUploadDirectory,
-} from "../middleware/vendor-product-upload.js";
+  consumeVendorProductMediaUploads,
+  validateOwnedVendorProductMediaUploads,
+} from "../services/vendor-product-media.service.js";
+import { getVendorProductUploadDirectory } from "../middleware/vendor-product-upload.js";
 
 const productFieldsSchema = Joi.object({
   name: Joi.string().trim().min(2).max(100).required(),
@@ -20,10 +25,26 @@ const productFieldsSchema = Joi.object({
 
 const getUploadedFiles = (req) => Object.values(req.files || {}).flat();
 
-const removeFiles = async (files) => {
+const cleanupUploadedMedia = async (files) => {
   await Promise.all(files.map(async (file) => {
     try {
-      await fs.unlink(file.path);
+      if (file.id) {
+        await deleteVendorProductMedia(getVendorProductMediaPath(file));
+      }
+    } catch (error) {
+      console.error("Unable to remove uploaded vendor product media:", error);
+    }
+  }));
+};
+
+const removeLegacyFiles = async (mediaPaths) => {
+  const legacyPaths = mediaPaths.filter((mediaPath) => (
+    typeof mediaPath === "string"
+    && /^\/uploads\/vendor-products\/[0-9a-f-]+\.(jpg|png|webp|mp4|webm)$/i.test(mediaPath)
+  ));
+  await Promise.all(legacyPaths.map(async (mediaPath) => {
+    try {
+      await fs.unlink(path.join(getVendorProductUploadDirectory(), path.basename(mediaPath)));
     } catch (error) {
       if (error.code !== "ENOENT") {
         console.error("Unable to remove uploaded vendor product media:", error);
@@ -32,39 +53,14 @@ const removeFiles = async (files) => {
   }));
 };
 
-const verifyMediaSignatures = async (files) => {
-  for (const file of files) {
-    const handle = await fs.open(file.path, "r");
-    try {
-      const header = Buffer.alloc(12);
-      const { bytesRead } = await handle.read(header, 0, header.length, 0);
-      const bytes = header.subarray(0, bytesRead);
-      const validImage = file.mimetype === "image/jpeg"
-        ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
-        : file.mimetype === "image/png"
-          ? bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-          : file.mimetype === "image/webp"
-            ? bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP"
-            : false;
-      const validVideo = file.mimetype === "video/mp4"
-        ? bytes.length >= 8 && bytes.toString("ascii", 4, 8) === "ftyp"
-        : file.mimetype === "video/webm"
-          ? bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
-          : false;
-
-      if (!validImage && !validVideo) {
-        return false;
-      }
-    } finally {
-      await handle.close();
-    }
-  }
-  return true;
-};
-
 const parseRetainedImages = (value) => {
   if (value === undefined) return undefined;
-  const raw = Array.isArray(value) ? value.find((item) => typeof item === "string" && item.trim().startsWith("[")) ?? value[0] : value;
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return value;
+  }
+  const raw = Array.isArray(value)
+    ? value.find((item) => typeof item === "string" && item.trim().startsWith("[")) ?? value[0]
+    : value;
   if (raw === undefined || raw === null || raw === "") return undefined;
   try {
     const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -90,20 +86,6 @@ const parseRetainedVideo = (value) => {
   } catch {
     return trimmed;
   }
-};
-
-const isProductMediaPath = (value) => (
-  typeof value === "string"
-  && /^\/uploads\/vendor-products\/[0-9a-f-]+\.(jpg|png|webp|mp4|webm)$/i.test(value)
-);
-
-const filesForMedia = (mediaPaths) => {
-  const uploadDirectory = getVendorProductUploadDirectory();
-  return mediaPaths
-    .filter(isProductMediaPath)
-    .map((mediaPath) => ({
-      path: path.join(uploadDirectory, path.basename(mediaPath)),
-    }));
 };
 
 const getValidatedProductFields = (body) => productFieldsSchema.validate({
@@ -145,6 +127,7 @@ const listStorefrontProducts = async (req, res, next) => {
 const createProduct = async (req, res, next) => {
   const files = getUploadedFiles(req);
   const body = req.body || {};
+  let mediaUploads = [];
   try {
     const { error, value } = getValidatedProductFields(body);
     const uploadedImages = (req.files?.images || [])
@@ -152,31 +135,61 @@ const createProduct = async (req, res, next) => {
     const uploadedVideo = (req.files?.video || [])[0];
 
     if (error) {
-      await removeFiles(files);
+      await cleanupUploadedMedia(files);
       return res.status(400).json({ message: error.details[0].message });
     }
-    if (body.images !== undefined || body.video !== undefined) {
-      await removeFiles(files);
+    if (
+      files.length > 0
+      && (body.images !== undefined || body.video !== undefined)
+    ) {
+      await cleanupUploadedMedia(files);
       return res.status(400).json({ message: "New products must use uploaded media files" });
     }
-    if (uploadedImages.length === 0 || uploadedImages.length > 5) {
-      await removeFiles(files);
+    const storedImages = body.images === undefined ? [] : body.images;
+    const storedVideo = body.video === undefined ? "" : body.video;
+    if (
+      !Array.isArray(storedImages)
+      || storedImages.some((image) => typeof image !== "string")
+      || typeof storedVideo !== "string"
+      || (uploadedImages.length > 0 && storedImages.length > 0)
+      || ((uploadedVideo || storedVideo) && uploadedVideo && storedVideo)
+    ) {
+      await cleanupUploadedMedia(files);
+      return res.status(400).json({ message: "Product media references are invalid" });
+    }
+    if (uploadedImages.length + storedImages.length === 0 || uploadedImages.length + storedImages.length > 5) {
+      await cleanupUploadedMedia(files);
       return res.status(400).json({ message: "Upload between one and five product images" });
     }
-    if (!(await verifyMediaSignatures(files))) {
-      await removeFiles(files);
-      return res.status(400).json({ message: "An uploaded file does not match its selected image or video type" });
+    if (storedImages.length || storedVideo) {
+      mediaUploads = await validateOwnedVendorProductMediaUploads(
+        req.authUserId,
+        storedImages,
+        storedVideo,
+      );
+      if (!mediaUploads) {
+        await cleanupUploadedMedia(files);
+        return res.status(400).json({ message: "Uploaded product media is invalid or has expired" });
+      }
     }
 
     const product = await VendorProduct.create({
       ...value,
       vendorId: req.authUserId,
-      images: uploadedImages.map(getVendorProductMediaPath),
-      video: uploadedVideo ? getVendorProductMediaPath(uploadedVideo) : "",
+      images: [
+        ...uploadedImages.map(getVendorProductMediaPath),
+        ...storedImages,
+      ],
+      video: uploadedVideo ? getVendorProductMediaPath(uploadedVideo) : storedVideo,
     });
+    try {
+      await consumeVendorProductMediaUploads(mediaUploads);
+    } catch (error) {
+      console.error("Unable to finalize vendor product media references:", error);
+    }
     return res.status(201).json({ product });
   } catch (error) {
-    await removeFiles(files);
+    await cleanupUploadedMedia(files);
     return next(error);
   }
 };
@@ -184,26 +197,39 @@ const createProduct = async (req, res, next) => {
 const updateProduct = async (req, res, next) => {
   const files = getUploadedFiles(req);
   const body = req.body || {};
+  let mediaUploads = [];
   try {
     const product = await VendorProduct.findOne({
       _id: req.params.productId,
       vendorId: req.authUserId,
     });
     if (!product) {
-      await removeFiles(files);
+      await cleanupUploadedMedia(files);
       return res.status(404).json({ message: "Product not found" });
     }
 
     const { error, value } = getValidatedProductFields(body);
     const retainedImages = parseRetainedImages(body.retainedImages ?? body.images);
     const retainedVideo = parseRetainedVideo(body.retainedVideo ?? body.video);
+    const storedImages = body.uploadedImages === undefined ? [] : body.uploadedImages;
+    const storedVideo = body.uploadedVideo === undefined ? "" : body.uploadedVideo;
     const uploadedImages = (req.files?.images || [])
       .filter((file) => file.mimetype.startsWith("image/"));
     const uploadedVideo = (req.files?.video || [])[0];
 
     if (error) {
-      await removeFiles(files);
+      await cleanupUploadedMedia(files);
       return res.status(400).json({ message: error.details[0].message });
+    }
+    if (
+      !Array.isArray(storedImages)
+      || storedImages.some((image) => typeof image !== "string")
+      || typeof storedVideo !== "string"
+      || (uploadedImages.length > 0 && storedImages.length > 0)
+      || (uploadedVideo && storedVideo)
+    ) {
+      await cleanupUploadedMedia(files);
+      return res.status(400).json({ message: "Product media references are invalid" });
     }
     if (
       retainedImages === null
@@ -211,38 +237,55 @@ const updateProduct = async (req, res, next) => {
       || retainedVideo === null
       || (typeof retainedVideo === "string" && retainedVideo !== "" && retainedVideo !== product.video)
     ) {
-      await removeFiles(files);
+      await cleanupUploadedMedia(files);
       return res.status(400).json({ message: "Product media can only be retained from this product" });
     }
 
+    if (storedImages.length || storedVideo) {
+      mediaUploads = await validateOwnedVendorProductMediaUploads(
+        req.authUserId,
+        storedImages,
+        storedVideo,
+      );
+      if (!mediaUploads) {
+        await cleanupUploadedMedia(files);
+        return res.status(400).json({ message: "Uploaded product media is invalid or has expired" });
+      }
+    }
     const images = [
       ...(Array.isArray(retainedImages) ? retainedImages : product.images),
       ...uploadedImages.map(getVendorProductMediaPath),
+      ...storedImages,
     ];
     if (images.length === 0 || images.length > 5) {
-      await removeFiles(files);
+      await cleanupUploadedMedia(files);
       return res.status(400).json({ message: "A product must have between one and five images" });
-    }
-    if (!(await verifyMediaSignatures(files))) {
-      await removeFiles(files);
-      return res.status(400).json({ message: "An uploaded file does not match its selected image or video type" });
     }
 
     const previousMedia = [...product.images, ...(product.video ? [product.video] : [])];
     const nextVideo = uploadedVideo
       ? getVendorProductMediaPath(uploadedVideo)
+      : storedVideo
+        ? storedVideo
       : typeof retainedVideo === "string"
         ? retainedVideo
         : product.video;
 
     Object.assign(product, value, { images, video: nextVideo });
     await product.save();
+    try {
+      await consumeVendorProductMediaUploads(mediaUploads);
+    } catch (error) {
+      console.error("Unable to finalize vendor product media references:", error);
+    }
 
     const nextMedia = new Set([...images, ...(nextVideo ? [nextVideo] : [])]);
-    await removeFiles(filesForMedia(previousMedia.filter((mediaPath) => !nextMedia.has(mediaPath))));
+    const removedMedia = previousMedia.filter((mediaPath) => !nextMedia.has(mediaPath));
+    await removeLegacyFiles(removedMedia);
+    await cleanupStoredMedia(removedMedia);
     return res.status(200).json({ product });
   } catch (error) {
-    await removeFiles(files);
+    await cleanupUploadedMedia(files);
     return next(error);
   }
 };
@@ -266,10 +309,91 @@ const deleteProduct = async (req, res, next) => {
 
 const cleanupVendorProduct = async (product) => {
   await UserProduct.deleteMany({ productId: `vendor-${product._id}` });
-  await removeFiles(filesForMedia([
+  const mediaPaths = [
     ...product.images,
     ...(product.video ? [product.video] : []),
-  ]));
+  ];
+  await removeLegacyFiles(mediaPaths);
+  await cleanupStoredMedia(mediaPaths);
+};
+
+const cleanupStoredMedia = async (mediaPaths) => {
+  await Promise.all(mediaPaths.map(async (mediaPath) => {
+    if (!getVendorProductMediaId(mediaPath)) return;
+    try {
+      await deleteVendorProductMedia(mediaPath);
+    } catch (error) {
+      console.error("Unable to remove vendor product media from MongoDB:", error);
+    }
+  }));
+};
+
+const streamProductMedia = async (req, res, next) => {
+  try {
+    const id = getVendorProductMediaId(`/api/products/media/${req.params.mediaId}`);
+    if (!id) {
+      return res.status(404).json({ message: "Product media not found" });
+    }
+
+    const bucket = getVendorProductMediaBucket();
+    const file = await bucket.find({ _id: id }).next();
+    if (!file) {
+      return res.status(404).json({ message: "Product media not found" });
+    }
+
+    const length = file.length;
+    const rangeHeader = req.headers.range;
+    let start = 0;
+    let end = length - 1;
+    let status = 200;
+    if (rangeHeader) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+      if (!match || (!match[1] && !match[2])) {
+        res.setHeader("Content-Range", `bytes */${length}`);
+        return res.status(416).end();
+      }
+
+      if (!match[1]) {
+        const suffixLength = Number(match[2]);
+        if (suffixLength <= 0) {
+          res.setHeader("Content-Range", `bytes */${length}`);
+          return res.status(416).end();
+        }
+        start = Math.max(length - suffixLength, 0);
+      } else {
+        start = Number(match[1]);
+        if (match[2]) end = Number(match[2]);
+      }
+
+      if (start >= length || end < start) {
+        res.setHeader("Content-Range", `bytes */${length}`);
+        return res.status(416).end();
+      }
+      end = Math.min(end, length - 1);
+      status = 206;
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${length}`);
+    }
+
+    res.status(status);
+    res.setHeader("Content-Type", file.metadata?.contentType || "application/octet-stream");
+    res.setHeader("Content-Length", end - start + 1);
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    const stream = bucket.openDownloadStream(id, { start, end: end + 1 });
+    stream.once("error", (error) => {
+      if (res.headersSent) {
+        res.destroy(error);
+      } else {
+        next(error);
+      }
+    });
+    stream.pipe(res);
+    return undefined;
+  } catch (error) {
+    return next(error);
+  }
 };
 
 const removeVendorProduct = async (productId) => {
@@ -286,5 +410,6 @@ export {
   listProducts,
   listStorefrontProducts,
   removeVendorProduct,
+  streamProductMedia,
   updateProduct,
 };

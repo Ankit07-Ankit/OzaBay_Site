@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "./components/Navbar/Navbar.jsx";
 import Hero from "./components/Hero/Hero.jsx";

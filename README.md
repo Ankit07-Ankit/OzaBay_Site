@@ -27,3 +27,5 @@ Set `GOOGLE_CLIENT_ID` in `ozabay-backend/.env` to your OAuth 2.0 web client ID.
 Customers can cancel orders before any item is out for delivery. For an item already out for delivery, customers can submit a product-specific cancellation request for vendor review. If the vendor approves a request for a paid order, the admin panel flags the product refund for manual follow-up.
 
 Customers can request a return for each delivered product within seven days of delivery. Vendors review return requests in Orders & Sales, and administrators can see each request's status in the order list.
+
+Vendor product images and videos are uploaded in 3 MB chunks, assembled in MongoDB GridFS, and served from `/api/products/media/:mediaId`. Chunked requests stay below serverless request-size limits; the overall per-file limit remains 50 MB. New uploads do not write product media to local disk; existing product media stored under `/uploads/vendor-products` remains available for compatibility.

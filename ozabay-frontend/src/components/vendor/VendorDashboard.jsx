@@ -457,9 +457,18 @@ export default function VendorDashboard({ account, request }) {
       setError("Each product image must be 50 MB or smaller.");
       return;
     }
-    if (selectedFiles.length + newImages.length + retainedImages.length > 5) {
-      setError("A product can have up to five images. Remove an existing image first.");
+    const wouldExceedImageLimit =
+      selectedFiles.length + newImages.length + retainedImages.length > 5;
+    const canReplaceExistingImages =
+      editingProduct
+      && retainedImages.length > 0
+      && selectedFiles.length + newImages.length <= 5;
+    if (wouldExceedImageLimit && !canReplaceExistingImages) {
+      setError("A product can have up to five images. Remove images or choose fewer files.");
       return;
+    }
+    if (wouldExceedImageLimit && canReplaceExistingImages) {
+      setRetainedImages([]);
     }
     setError("");
     setNewImages((current) => [...current, ...selectedFiles.map(createPreview)]);
@@ -494,21 +503,75 @@ export default function VendorDashboard({ account, request }) {
       return;
     }
     setSaving(true);
-
-    const payload = new FormData();
-    Object.entries(form).forEach(([key, value]) => payload.append(key, value));
-    newImages.forEach((file) => payload.append("images", file));
-    if (newVideo) payload.append("video", newVideo);
-    if (editingProduct) {
-      payload.append("retainedImages", JSON.stringify(retainedImages));
-      payload.append("retainedVideo", retainedVideo || "");
-    }
-
+    setNotice("Uploading product media...");
+    const pendingUploadIds = [];
+    let productSaved = false;
     try {
+      const uploadFile = async (file, field) => {
+        const upload = await request("/products/media-uploads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            field,
+            originalName: file.name,
+            contentType: file.type,
+            size: file.size,
+          }),
+        });
+        pendingUploadIds.push(upload.uploadId);
+        const chunkSize = Number(upload.chunkSize);
+        if (!Number.isInteger(chunkSize) || chunkSize < 1) {
+          throw new Error("The server returned an invalid media upload configuration.");
+        }
+
+        for (let start = 0, index = 0; start < file.size; start += chunkSize, index += 1) {
+          await request(
+            `/products/media-uploads/${upload.uploadId}/chunks/${index}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/octet-stream" },
+              body: file.slice(start, Math.min(start + chunkSize, file.size)),
+            },
+          );
+        }
+
+        const completed = await request(
+          `/products/media-uploads/${upload.uploadId}/complete`,
+          { method: "POST" },
+        );
+        if (typeof completed.mediaPath !== "string") {
+          throw new Error("The server did not return the saved product media.");
+        }
+        return completed.mediaPath;
+      };
+
+      const uploadedImages = [];
+      for (const image of newImages) {
+        uploadedImages.push(await uploadFile(image, "images"));
+      }
+      const uploadedVideo = newVideo ? await uploadFile(newVideo, "video") : "";
+      const payload = editingProduct
+        ? {
+            ...form,
+            retainedImages,
+            retainedVideo: retainedVideo || "",
+            uploadedImages,
+            uploadedVideo,
+          }
+        : {
+            ...form,
+            images: uploadedImages,
+            video: uploadedVideo,
+          };
       const result = await request(
         editingProduct ? `/products/${editingProduct._id}` : "/products",
-        { method: editingProduct ? "PATCH" : "POST", body: payload },
+        {
+          method: editingProduct ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
       );
+      productSaved = true;
       setProducts((current) =>
         editingProduct
           ? current.map((product) => (product._id === result.product._id ? result.product : product))
@@ -520,6 +583,15 @@ export default function VendorDashboard({ account, request }) {
     } catch (requestError) {
       setError(requestError.message);
     } finally {
+      if (!productSaved) {
+        for (const uploadId of pendingUploadIds) {
+          try {
+            await request(`/products/media-uploads/${uploadId}`, { method: "DELETE" });
+          } catch (cleanupError) {
+            console.error("Unable to clean up an incomplete product media upload:", cleanupError);
+          }
+        }
+      }
       setSaving(false);
     }
   };
@@ -974,7 +1046,7 @@ export default function VendorDashboard({ account, request }) {
                 name="images"
                 accept="image/jpeg,image/png,image/webp"
                 multiple
-                disabled={saving || retainedImages.length + newImages.length >= 5}
+                disabled={saving}
                 onChange={chooseImages}
               />
               <span className="v-file-dropzone__icon">📷</span>
@@ -985,6 +1057,16 @@ export default function VendorDashboard({ account, request }) {
             <p className="vendor-product-form__hint">
               {retainedImages.length + newImages.length} of 5 images selected.
             </p>
+            {editingProduct && retainedImages.length > 0 && (
+              <button
+                type="button"
+                className="v-card-action-btn v-card-action-btn--edit"
+                disabled={saving}
+                onClick={() => setRetainedImages([])}
+              >
+                Replace current images
+              </button>
+            )}
 
             {/* Existing images preview */}
             {editingProduct && retainedImages.length > 0 && (

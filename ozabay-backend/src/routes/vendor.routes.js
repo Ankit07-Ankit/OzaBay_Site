@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   createProduct,
   deleteProduct,
@@ -8,6 +8,13 @@ import {
 import requireAuth from "../middleware/auth.middleware.js";
 import requireVendor from "../middleware/vendor.middleware.js";
 import { handleVendorProductUpload } from "../middleware/vendor-product-upload.js";
+import {
+  cancelMediaUpload,
+  completeMediaUpload,
+  createMediaUpload,
+  uploadMediaChunk,
+} from "../controllers/vendor-product-media.controller.js";
+import { mediaChunkSize } from "../services/vendor-product-media.service.js";
 import User from "../models/user.model.js";
 import {
   collectVendorCashOnDelivery,
@@ -54,6 +61,17 @@ vendorRouter.patch(
   "/orders/:orderId/items/:productId/cancel-request",
   reviewVendorItemCancellation,
 );
+vendorRouter.post("/products/media-uploads", createMediaUpload);
+vendorRouter.put(
+  "/products/media-uploads/:uploadId/chunks/:chunkIndex",
+  express.raw({
+    type: "application/octet-stream",
+    limit: mediaChunkSize,
+  }),
+  uploadMediaChunk,
+);
+vendorRouter.post("/products/media-uploads/:uploadId/complete", completeMediaUpload);
+vendorRouter.delete("/products/media-uploads/:uploadId", cancelMediaUpload);
 vendorRouter.post("/products", handleVendorProductUpload, createProduct);
 vendorRouter.patch("/products/:productId", handleVendorProductUpload, updateProduct);
 vendorRouter.delete("/products/:productId", deleteProduct);
@@ -178,6 +196,9 @@ vendorRouter.delete("/locations/:locationId", async (req, res, next) => {
 });
 vendorRouter.use((error, req, res, next) => {
   console.error("Vendor product request failed:", error);
+  if (error.status === 413 || error.type === "entity.too.large") {
+    return res.status(413).json({ message: "Each media upload chunk must be 3 MB or smaller" });
+  }
   if (error.name === "ValidationError" || error.name === "CastError") {
     return res.status(400).json({ message: "Invalid product data" });
   }

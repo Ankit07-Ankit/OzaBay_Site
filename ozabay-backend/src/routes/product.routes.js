@@ -1,5 +1,8 @@
 import { Router } from "express";
-import { listStorefrontProducts } from "../controllers/vendor-product.controller.js";
+import {
+  listStorefrontProducts,
+  streamProductMedia,
+} from "../controllers/vendor-product.controller.js";
 import {
   createOrUpdateProductReview,
   listProductReviewSummaries,
@@ -14,6 +17,7 @@ import {
 
 const productRouter = Router();
 
+productRouter.get("/media/:mediaId", streamProductMedia);
 productRouter.get("/reviews/summary", productReviewSummaryValidation, listProductReviewSummaries);
 productRouter.get("/:productId/reviews", productReviewParamsValidation, listProductReviews);
 productRouter.post(
