@@ -30,6 +30,7 @@ import {
 } from "../controllers/product-review.controller.js";
 import {
   createSupportMessage,
+  getSupportUnreadCount,
   listSupportMessages,
   replyToSupportMessage,
 } from "../controllers/support.controller.js";
@@ -42,6 +43,7 @@ vendorRouter.get("/orders", listVendorOrders);
 vendorRouter.get("/reviews", listVendorProductReviews);
 vendorRouter.post("/reviews/:reviewId/replies", replyToVendorProductReview);
 vendorRouter.get("/support", listSupportMessages);
+vendorRouter.get("/support/unread-count", getSupportUnreadCount);
 vendorRouter.post("/support", createSupportMessage);
 vendorRouter.post("/support/:ticketId/replies", replyToSupportMessage);
 vendorRouter.patch("/orders/:orderId/status", updateVendorOrderStatus);
