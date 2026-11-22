@@ -16,6 +16,7 @@ const app = express();
 const frontendOrigins = [
   "https://ozabay.com",
   "https://www.ozabay.com",
+  "https://oza-bay-site-iota.vercel.app",
   ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:5173"]),
   ...(process.env.FRONTEND_URL || "")
   .split(",")
