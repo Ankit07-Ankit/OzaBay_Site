@@ -428,6 +428,12 @@ const verifyPayment = async (req, res, next) => {
     let payment = await razorpayInstance.payments.fetch(
       value.razorpay_payment_id,
     );
+    if (payment.status === "failed") {
+      return res.status(402).json({
+        message:
+          "Razorpay reports that this payment attempt failed, so the order was not confirmed. If your bank account was debited, check for the reversal before retrying.",
+      });
+    }
     if (payment.status === "authorized") {
       payment = await razorpayInstance.payments.capture(
         payment.id,

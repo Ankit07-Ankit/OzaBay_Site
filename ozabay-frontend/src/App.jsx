@@ -1178,50 +1178,71 @@ export default function App() {
           },
         },
         handler: async (paymentResult) => {
-          try {
-            const verified = await requestAuthenticatedApi(
-              "/orders/verify-payment",
-              {
-                method: "POST",
-                body: JSON.stringify({
-                  orderId: order._id,
-                  ...paymentResult,
-                }),
-              },
-            );
-            completeOrder(verified.order);
-          } catch (error) {
-            for (let attempt = 0; attempt < 3; attempt += 1) {
+          let verificationError;
+          const verificationOptions = {
+            method: "POST",
+            body: JSON.stringify({
+              orderId: order._id,
+              ...paymentResult,
+            }),
+          };
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            if (attempt > 0) {
               await new Promise((resolve) =>
-                window.setTimeout(resolve, (attempt + 1) * 1000),
+                window.setTimeout(resolve, attempt * 750),
               );
-              try {
-                const { orders: latestOrders } = await requestAuthenticatedApi(
-                  "/orders/mine",
-                  { cache: "no-store" },
-                );
-                const paidOrder = latestOrders?.find(
-                  (latestOrder) =>
-                    latestOrder._id === order._id &&
-                    latestOrder.paymentStatus === "paid",
-                );
-                if (paidOrder) {
-                  completeOrder(paidOrder);
-                  return;
-                }
-              } catch (refreshError) {
-                console.error(
-                  "Unable to refresh order after payment verification failed:",
-                  refreshError,
-                );
-              }
             }
-            setCheckoutError(
-              `Payment was received but could not be confirmed yet. Do not retry payment while this order is being checked. Check your Orders page; contact support with order ${order._id} if it remains unpaid. ${error.message}`,
-            );
-          } finally {
-            setCheckoutBusy(false);
+            try {
+              const verified = await requestAuthenticatedApi(
+                "/orders/verify-payment",
+                verificationOptions,
+              );
+              completeOrder(verified.order);
+              setCheckoutBusy(false);
+              return;
+            } catch (error) {
+              verificationError = error;
+              const paymentMayStillSettle =
+                error.message === "The payment has not been captured for this order.";
+              const retryableResponse =
+                !Number.isInteger(error.status) ||
+                error.status >= 500 ||
+                error.status === 408 ||
+                error.status === 429;
+              if (!paymentMayStillSettle && !retryableResponse) break;
+            }
           }
+
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, (attempt + 1) * 1000),
+            );
+            try {
+              const { orders: latestOrders } = await requestAuthenticatedApi(
+                "/orders/mine",
+                { cache: "no-store" },
+              );
+              const paidOrder = latestOrders?.find(
+                (latestOrder) =>
+                  latestOrder._id === order._id &&
+                  latestOrder.paymentStatus === "paid",
+              );
+              if (paidOrder) {
+                completeOrder(paidOrder);
+                setCheckoutBusy(false);
+                return;
+              }
+            } catch (refreshError) {
+              console.error(
+                "Unable to refresh order after payment verification failed:",
+                refreshError,
+              );
+            }
+          }
+          setCheckoutError(
+            `Razorpay has not confirmed this payment yet, so the order is not confirmed. Do not retry until the payment status is resolved. Check your Orders page; contact support with order ${order._id} if it remains unpaid. ${verificationError?.message || "Payment verification could not be completed."}`,
+          );
+          setCheckoutBusy(false);
         },
         modal: {
           ondismiss: () => setCheckoutBusy(false),
@@ -1486,8 +1507,13 @@ export default function App() {
       response = await send(token);
     }
     const result = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(result.message || "Unable to complete this request.");
+    if (!response.ok) {
+      const error = new Error(
+        result.message || "Unable to complete this request.",
+      );
+      error.status = response.status;
+      throw error;
+    }
     return result;
   };
   const cancelCustomerOrder = async (orderId) => {
