@@ -99,7 +99,9 @@ const getValidatedProductFields = (body) => productFieldsSchema.validate({
 
 const listProducts = async (req, res, next) => {
   try {
-    const products = await VendorProduct.find({ vendorId: req.authUserId }).sort({ createdAt: -1 });
+    const products = await VendorProduct.find({ vendorId: req.authUserId })
+      .sort({ createdAt: -1 })
+      .lean();
     return res.status(200).json({ products });
   } catch (error) {
     return next(error);
@@ -111,13 +113,14 @@ const listStorefrontProducts = async (req, res, next) => {
     const activeVendors = await User.find({
       accountType: "vendor",
       isBlocked: { $ne: true },
-    }).select("_id");
+    }).select("_id").lean();
     const products = await VendorProduct.find({
       vendorId: { $in: activeVendors.map((vendor) => vendor._id) },
     })
       .select("name description category price discountPercent offer images video vendorId createdAt")
       .populate("vendorId", "name")
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
     return res.status(200).json({ products });
   } catch (error) {
     return next(error);

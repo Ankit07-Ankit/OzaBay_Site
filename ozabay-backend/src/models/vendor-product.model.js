@@ -6,7 +6,6 @@ const vendorProductSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true,
     },
     name: {
       type: String,
@@ -58,6 +57,9 @@ const vendorProductSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+vendorProductSchema.index({ vendorId: 1, createdAt: -1 });
+vendorProductSchema.index({ createdAt: -1 });
 
 const VendorProduct = mongoose.model("VendorProduct", vendorProductSchema);
 

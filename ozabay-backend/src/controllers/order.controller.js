@@ -5,6 +5,7 @@ import {
   razorpayInstance,
   razorpayKeyId,
   razorpayKeySecret,
+  razorpayWebhookSecret,
 } from "./payment.controller.js";
 import Order from "../models/order.model.js";
 import User from "../models/user.model.js";
@@ -320,6 +321,69 @@ const createOrder = async (req, res, next) => {
   }
 };
 
+const confirmCapturedPayment = async (order, payment) => {
+  if (
+    payment.order_id !== order.razorpayOrderId ||
+    payment.amount !== Math.round(order.total * 100) ||
+    payment.currency !== "INR" ||
+    payment.status !== "captured"
+  ) {
+    return {
+      error: "The payment has not been captured for this order.",
+      status: 400,
+    };
+  }
+
+  if (order.paymentStatus === "paid") {
+    return order.razorpayPaymentId === payment.id
+      ? { order }
+      : { error: "This order has already been paid.", status: 409 };
+  }
+
+  const updatedOrder = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      paymentStatus: { $ne: "paid" },
+      orderStatus: { $ne: "Cancelled" },
+    },
+    {
+      $set: {
+        paymentStatus: "paid",
+        paymentDetails: {
+          provider: "Razorpay",
+          transactionId: payment.id,
+          method: payment.method || "Razorpay",
+          amount: payment.amount / 100,
+          currency: payment.currency,
+          status: "paid",
+          paidAt: Number.isFinite(payment.created_at)
+            ? new Date(payment.created_at * 1000)
+            : new Date(),
+        },
+        orderStatus: "Received",
+        razorpayPaymentId: payment.id,
+      },
+    },
+    { new: true, runValidators: true },
+  );
+  if (!updatedOrder) {
+    const latestOrder = await Order.findById(order._id);
+    if (
+      latestOrder?.paymentStatus === "paid" &&
+      latestOrder.razorpayPaymentId === payment.id
+    ) {
+      return { order: latestOrder };
+    }
+    return {
+      error: "This order was cancelled before payment confirmation.",
+      status: 409,
+    };
+  }
+
+  await sendOrderPlacedEmail(updatedOrder.toObject());
+  return { order: updatedOrder };
+};
+
 const verifyPayment = async (req, res, next) => {
   try {
     if (!razorpayInstance || !razorpayKeySecret) {
@@ -361,56 +425,94 @@ const verifyPayment = async (req, res, next) => {
       return res.status(400).json({ message: "Payment verification failed." });
     }
 
-    const payment = await razorpayInstance.payments.fetch(
+    let payment = await razorpayInstance.payments.fetch(
       value.razorpay_payment_id,
     );
-    if (
-      payment.order_id !== order.razorpayOrderId ||
-      payment.amount !== Math.round(order.total * 100) ||
-      payment.currency !== "INR" ||
-      payment.status !== "captured"
-    ) {
-      return res.status(400).json({
-        message: "The payment has not been captured for this order.",
-      });
+    if (payment.status === "authorized") {
+      payment = await razorpayInstance.payments.capture(
+        payment.id,
+        payment.amount,
+        payment.currency,
+      );
     }
 
-    const updatedOrder = await Order.findOneAndUpdate(
-      {
-        _id: order._id,
-        customerId: req.authUserId,
-        paymentStatus: { $ne: "paid" },
-        orderStatus: { $ne: "Cancelled" },
-      },
-      {
-        $set: {
-          paymentStatus: "paid",
-          paymentDetails: {
-            provider: "Razorpay",
-            transactionId: payment.id,
-            method: payment.method || "Razorpay",
-            amount: payment.amount / 100,
-            currency: payment.currency,
-            status: "paid",
-            paidAt: Number.isFinite(payment.created_at)
-              ? new Date(payment.created_at * 1000)
-              : new Date(),
-          },
-          orderStatus: "Received",
-          razorpayPaymentId: value.razorpay_payment_id,
-        },
-      },
-      { new: true, runValidators: true },
-    );
-    if (!updatedOrder) {
-      return res.status(409).json({
-        message: "This order was cancelled before payment confirmation.",
+    const confirmation = await confirmCapturedPayment(order, payment);
+    if (confirmation.error) {
+      return res.status(confirmation.status).json({
+        message: confirmation.error,
       });
     }
-    await sendOrderPlacedEmail(updatedOrder.toObject());
-    return res.status(200).json({ order: updatedOrder });
+    return res.status(200).json({ order: confirmation.order });
   } catch (error) {
     return next(error);
+  }
+};
+
+const handleRazorpayWebhook = async (req, res) => {
+  if (!razorpayWebhookSecret) {
+    console.error("Razorpay webhook received without RAZORPAY_WEBHOOK_SECRET.");
+    return res.status(503).json({ message: "Payment webhook is not configured." });
+  }
+  if (!Buffer.isBuffer(req.body)) {
+    return res.status(400).json({ message: "Invalid webhook body." });
+  }
+
+  const signature = req.get("x-razorpay-signature") || "";
+  const expectedSignature = crypto
+    .createHmac("sha256", razorpayWebhookSecret)
+    .update(req.body)
+    .digest();
+  const receivedSignature = Buffer.from(signature, "hex");
+  if (
+    receivedSignature.length !== expectedSignature.length ||
+    !crypto.timingSafeEqual(receivedSignature, expectedSignature)
+  ) {
+    return res.status(400).json({ message: "Invalid webhook signature." });
+  }
+
+  let event;
+  try {
+    event = JSON.parse(req.body.toString("utf8"));
+  } catch (error) {
+    console.error("Razorpay sent an invalid webhook payload:", error);
+    return res.status(400).json({ message: "Invalid webhook payload." });
+  }
+
+  if (!["payment.captured", "order.paid"].includes(event.event)) {
+    return res.status(200).json({ received: true });
+  }
+
+  const payment = event.payload?.payment?.entity;
+  if (!payment?.id || !payment.order_id) {
+    console.error("Razorpay payment webhook is missing its payment details.");
+    return res.status(400).json({ message: "Payment details are missing." });
+  }
+
+  try {
+    const order = await Order.findOne({
+      razorpayOrderId: payment.order_id,
+      paymentMethod: "Razorpay",
+    });
+    if (!order) {
+      console.error("Razorpay captured payment has no matching OzaBay order:", {
+        paymentId: payment.id,
+        razorpayOrderId: payment.order_id,
+      });
+      return res.status(200).json({ received: true });
+    }
+
+    const confirmation = await confirmCapturedPayment(order, payment);
+    if (confirmation.error) {
+      console.error("Razorpay captured payment could not confirm its order:", {
+        orderId: String(order._id),
+        paymentId: payment.id,
+        message: confirmation.error,
+      });
+    }
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    console.error("Unable to process Razorpay payment webhook:", error);
+    return res.status(500).json({ message: "Unable to process payment webhook." });
   }
 };
 
@@ -1296,5 +1398,6 @@ export {
   reviewVendorReturnRequest,
   updateVendorOrderItemStatus,
   updateVendorOrderStatus,
+  handleRazorpayWebhook,
   verifyPayment,
 };

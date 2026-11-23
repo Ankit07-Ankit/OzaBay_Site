@@ -852,7 +852,7 @@ body{overflow-x:hidden}
   z-index:0;
   background:
     linear-gradient(180deg,rgba(255,255,255,.8),rgba(255,255,255,.88)),
-    url('/images/textile3.jpg') center/cover no-repeat;
+    url('/images/textile3.webp') center/cover no-repeat;
 }
 .du-corner{position:absolute;width:20px;height:20px;z-index:2;pointer-events:none}
 .du-corner--tl{top:16px;left:16px;border-top:2px solid var(--gold);border-left:2px solid var(--gold)}

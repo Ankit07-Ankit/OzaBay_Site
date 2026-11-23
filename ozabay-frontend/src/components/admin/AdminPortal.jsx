@@ -412,6 +412,7 @@ function AdminDashboard() {
           onClick={() => { setTab("support"); setPage(1); }}
         >
           <span aria-hidden="true">✉</span> Support & feedback
+          {supportUnreadCount > 0 && <i className="admin-nav-unread-dot" aria-hidden="true" />}
           {supportUnreadCount > 0 && (
             <em className="admin-nav-badge" aria-label={`${supportUnreadCount} unread support conversations`}>
               {supportUnreadCount}

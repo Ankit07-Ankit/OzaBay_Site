@@ -34,11 +34,15 @@ export default function LazyVideo({
     if (!video) return;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const saveData = Boolean(navigator.connection?.saveData);
-    if (!active || !nearViewport || !src || reduceMotion || saveData) {
+    const connection = navigator.connection;
+    const saveData = Boolean(connection?.saveData);
+    const slowConnection = ["slow-2g", "2g", "3g"].includes(connection?.effectiveType);
+    if (!active || !nearViewport || !src || reduceMotion || saveData || slowConnection) {
       video.pause();
-      video.removeAttribute("src");
-      video.load();
+      if ((reduceMotion || saveData || slowConnection) && video.hasAttribute("src")) {
+        video.removeAttribute("src");
+        video.load();
+      }
       return;
     }
 

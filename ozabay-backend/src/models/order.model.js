@@ -135,6 +135,7 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.index({ "items.vendorId": 1, createdAt: -1 });
+orderSchema.index({ customerId: 1, createdAt: -1 });
 
 const Order = mongoose.model("Order", orderSchema);
 

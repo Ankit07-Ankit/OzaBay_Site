@@ -1762,7 +1762,10 @@ export default function VendorDashboard({ account, request }) {
         <div className="vendor-orders-header">
           <div>
             <p className="eyebrow">Maker Concierge</p>
-            <h2>Vendor Support & Admin Help</h2>
+            <h2>
+              Vendor Support & Admin Help
+              {supportUnreadCount > 0 && <span className="vendor-support-unread-dot" aria-hidden="true" />}
+            </h2>
           </div>
           <div className="vendor-support-header-actions">
             {supportUnreadCount > 0 && (

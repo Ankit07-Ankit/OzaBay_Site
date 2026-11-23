@@ -4,8 +4,9 @@ import config from "./config.js";
 const connectDB = async () => {
   try {
     await mongoose.connect(config.MONGO_URI, {
-      // useNewUrlParser: true,
-      // useUnifiedTopology: true,
+      maxPoolSize: 10,
+      minPoolSize: 0,
+      maxIdleTimeMS: 30000,
     });
     console.log("MongoDB connected successfully");
   } catch (error) {

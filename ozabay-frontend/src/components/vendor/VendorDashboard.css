@@ -1664,6 +1664,17 @@
   gap: 10px;
 }
 
+.vendor-support-unread-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-left: 9px;
+  border-radius: 50%;
+  background: #c43f3f;
+  box-shadow: 0 0 0 4px rgba(196, 63, 63, .14);
+  vertical-align: middle;
+}
+
 .vendor-support-unread,
 .vendor-support-new {
   display: inline-flex;

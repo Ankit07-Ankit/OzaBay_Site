@@ -932,6 +932,9 @@ export default function AccountSection({
               onClick={() => selectTab(tab)}
             >
               <span>{tab}</span>
+              {tab === "Support" && supportUnreadCount > 0 && (
+                <span className="account-section__support-dot" aria-hidden="true" />
+              )}
               {tab === "Favorites" && (
                 <em className="account-section__tab-count">
                   {favorites.length}
@@ -1846,7 +1849,12 @@ export default function AccountSection({
             <div className="account-section__section-heading">
               <div>
                 <p className="eyebrow">{isVendor ? "Maker concierge" : "Customer concierge"}</p>
-                <h3>{isVendor ? "Vendor support" : "Support"} <em>messages.</em></h3>
+                <h3>
+                  {isVendor ? "Vendor support" : "Support"} <em>messages.</em>
+                  {supportUnreadCount > 0 && (
+                    <span className="account-section__support-dot" aria-hidden="true" />
+                  )}
+                </h3>
               </div>
               <span>{supportTickets.length} conversation{supportTickets.length === 1 ? "" : "s"}</span>
             </div>

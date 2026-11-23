@@ -1159,6 +1159,24 @@ export default function App() {
           contact: checkout.phone,
         },
         theme: { color: "#17365f" },
+        config: {
+          display: {
+            blocks: {
+              online: {
+                name: "Pay using UPI, cards, wallets or netbanking",
+                instruments: [
+                  { method: "upi" },
+                  { method: "card" },
+                  { method: "wallet" },
+                  { method: "netbanking" },
+                ],
+              },
+            },
+            sequence: ["block.online"],
+            hide: [{ method: "upi", flows: ["collect"] }],
+            preferences: { show_default_blocks: false },
+          },
+        },
         handler: async (paymentResult) => {
           try {
             const verified = await requestAuthenticatedApi(
@@ -1173,8 +1191,33 @@ export default function App() {
             );
             completeOrder(verified.order);
           } catch (error) {
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              await new Promise((resolve) =>
+                window.setTimeout(resolve, (attempt + 1) * 1000),
+              );
+              try {
+                const { orders: latestOrders } = await requestAuthenticatedApi(
+                  "/orders/mine",
+                  { cache: "no-store" },
+                );
+                const paidOrder = latestOrders?.find(
+                  (latestOrder) =>
+                    latestOrder._id === order._id &&
+                    latestOrder.paymentStatus === "paid",
+                );
+                if (paidOrder) {
+                  completeOrder(paidOrder);
+                  return;
+                }
+              } catch (refreshError) {
+                console.error(
+                  "Unable to refresh order after payment verification failed:",
+                  refreshError,
+                );
+              }
+            }
             setCheckoutError(
-              `Payment was received but could not be confirmed here. Contact support with order ${order._id}. ${error.message}`,
+              `Payment was received but could not be confirmed yet. Do not retry payment while this order is being checked. Check your Orders page; contact support with order ${order._id} if it remains unpaid. ${error.message}`,
             );
           } finally {
             setCheckoutBusy(false);
@@ -1189,8 +1232,7 @@ export default function App() {
       paymentWindow.on("payment.failed", (response) => {
         console.error("Razorpay payment failed:", response?.error);
         setCheckoutError(
-          response?.error?.description ||
-            "Online payment failed. Please try again.",
+          `Razorpay could not complete this payment${response?.error?.description ? `: ${response.error.description}` : ""}. Your order is not confirmed. If your bank account was debited, check for a reversal before retrying.`,
         );
         setCheckoutBusy(false);
       });
@@ -1372,7 +1414,7 @@ export default function App() {
           loadOrders({ silent: true });
         }
       },
-      5000,
+      30000,
     );
     const onVisible = () => {
       if (document.visibilityState === "visible") loadOrders({ silent: true });
@@ -3690,7 +3732,7 @@ export default function App() {
                             {
                               value: "Razorpay",
                               icon: "🔒",
-                              label: "Pay online with Razorpay",
+                              label: "Pay by UPI, card, wallet or netbanking",
                             },
                           ].map((opt) => (
                             <label

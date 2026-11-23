@@ -3,9 +3,9 @@ import LazyVideo from "../shared/LazyVideo.jsx";
 import "./Hero.css";
 
 const SLIDES = [
-  { id: 1, image: "/images/hero-vase.jpg", video: "/videos/ozabay-3d-hero.mp4", label: "Blue pottery · Jaipur", kicker: "The OzaBay Edit", title: <>Timeless Crafts,<em>Modern Homes.</em></>, text: <>Discover authentic handcrafted pieces<br />from India's finest artisans.</> },
-  { id: 2, image: "/images/handmade-sculptural-vase.jpg", label: "Sculptural terracotta", kicker: "Made by Hand", title: <>Objects with a <em>Story.</em></>, text: <>Slow-made forms shaped by hand,<br />made to live with you for years.</> },
-  { id: 3, image: "/images/handmade-indigo-bowls.jpg", label: "Indigo stoneware", kicker: "Indian Craft, Reimagined", title: <>Keep the craft.<em>Change the space.</em></>, text: <>Heritage techniques, contemporary silhouettes,<br />and pieces worth keeping.</> },
+  { id: 1, image: "/images/hero-vase.webp", video: "/videos/ozabay-3d-hero.mp4", label: "Blue pottery · Jaipur", kicker: "The OzaBay Edit", title: <>Timeless Crafts,<em>Modern Homes.</em></>, text: <>Discover authentic handcrafted pieces<br />from India's finest artisans.</> },
+  { id: 2, image: "/images/handmade-sculptural-vase.webp", label: "Sculptural terracotta", kicker: "Made by Hand", title: <>Objects with a <em>Story.</em></>, text: <>Slow-made forms shaped by hand,<br />made to live with you for years.</> },
+  { id: 3, image: "/images/handmade-indigo-bowls.webp", label: "Indigo stoneware", kicker: "Indian Craft, Reimagined", title: <>Keep the craft.<em>Change the space.</em></>, text: <>Heritage techniques, contemporary silhouettes,<br />and pieces worth keeping.</> },
 ];
 
 const Arrow = ({ dir = "right" }) => (

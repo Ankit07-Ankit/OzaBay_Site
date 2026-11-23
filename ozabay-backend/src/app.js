@@ -3,6 +3,7 @@ import cors from "cors";
 import morgan from "morgan";
 import authRouter from "./routes/auth.routes.js";
 import orderRouter from "./routes/order.routes.js";
+import { handleRazorpayWebhook } from "./controllers/order.controller.js";
 import vendorRouter from "./routes/vendor.routes.js";
 import productRouter from "./routes/product.routes.js";
 import userProductRouter from "./routes/user-product.routes.js";
@@ -34,6 +35,11 @@ app.use(cors({
   },
   credentials: true,
 }));
+app.post(
+  "/api/orders/razorpay/webhook",
+  express.raw({ type: "application/json" }),
+  handleRazorpayWebhook,
+);
 app.use(express.json());
 app.use(morgan("dev"));
 app.use(cookieParser());
