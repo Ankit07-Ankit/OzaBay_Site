@@ -281,20 +281,29 @@ const googleLogin = async (req, res) => {
 
   try {
     const email = payload.email.trim().toLowerCase();
-    let user = await userModel.findOne({ email });
-    if (!user) {
-      try {
-        user = await userModel.create({
-          name: (typeof payload.name === "string" && payload.name.trim())
-            || email.split("@")[0],
-          email,
-          accountType: "user",
-          verified: true,
-        });
-      } catch (error) {
-        if (error.code !== 11000) throw error;
-        user = await userModel.findOne({ email });
-      }
+    let user;
+    try {
+      user = await userModel.findOneAndUpdate(
+        { email },
+        {
+          $setOnInsert: {
+            name: (typeof payload.name === "string" && payload.name.trim())
+              || email.split("@")[0],
+            email,
+            accountType: "user",
+            verified: true,
+          },
+        },
+        {
+          new: true,
+          runValidators: true,
+          setDefaultsOnInsert: true,
+          upsert: true,
+        },
+      );
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+      user = await userModel.findOne({ email });
     }
 
     if (!user) {
