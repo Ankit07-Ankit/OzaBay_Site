@@ -1686,7 +1686,7 @@ export default function App() {
   const listSupportMessages = ({ markRead = false } = {}) =>
     requestAuthenticatedApi(`/support${markRead ? "?markRead=true" : ""}`);
   const getSupportUnreadCount = () =>
-    requestAuthenticatedApi("/support/unread-count");
+    requestAuthenticatedApi("/support/unread-count", { cache: "no-store" });
   const createSupportMessage = (payload) =>
     requestAuthenticatedApi("/support", {
       method: "POST",

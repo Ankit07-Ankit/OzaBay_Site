@@ -10,7 +10,7 @@ import UserProduct from "../models/user-product.model.js";
 import VendorProduct from "../models/vendor-product.model.js";
 import SupportMessage from "../models/support-message.model.js";
 import {
-  countUnreadSupportMessages,
+  countUnreadSupportMessagesInDatabase,
   markSupportMessagesRead as markMessagesReadForRecipient,
   withSupportUnreadFlag,
 } from "../services/support-notification.service.js";
@@ -351,11 +351,14 @@ const listSupportMessages = async (req, res, next) => {
 
 const getSupportUnreadCount = async (req, res, next) => {
   try {
-    const tickets = await SupportMessage.find({})
-      .select("createdAt replies.sender replies.createdAt adminReadAt")
-      .lean();
+    const unreadCount = await countUnreadSupportMessagesInDatabase(
+      SupportMessage,
+      {},
+      "admin",
+    );
+    res.set("Cache-Control", "private, no-store");
     return res.status(200).json({
-      unreadCount: countUnreadSupportMessages(tickets, "admin"),
+      unreadCount,
     });
   } catch (error) {
     return next(error);

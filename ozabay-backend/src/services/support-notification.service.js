@@ -45,8 +45,52 @@ const countUnreadSupportMessages = (tickets, recipient) => (
   tickets.reduce((count, ticket) => count + Number(hasUnreadSupportMessage(ticket, recipient)), 0)
 );
 
+const countUnreadSupportMessagesInDatabase = async (
+  SupportMessage,
+  filter,
+  recipient,
+) => {
+  const isAdmin = recipient === "admin";
+  const readField = isAdmin ? "adminReadAt" : "userReadAt";
+  const incomingSender = isAdmin ? { $ne: ["$$reply.sender", "admin"] } : {
+    $eq: ["$$reply.sender", "admin"],
+  };
+  const epoch = new Date(0);
+  const [result] = await SupportMessage.aggregate([
+    { $match: filter },
+    {
+      $project: {
+        readAt: { $ifNull: [`$${readField}`, epoch] },
+        latestIncomingAt: {
+          $reduce: {
+            input: {
+              $filter: {
+                input: { $ifNull: ["$replies", []] },
+                as: "reply",
+                cond: incomingSender,
+              },
+            },
+            initialValue: isAdmin ? { $ifNull: ["$createdAt", epoch] } : epoch,
+            in: {
+              $cond: [
+                { $gt: ["$$this.createdAt", "$$value"] },
+                "$$this.createdAt",
+                "$$value",
+              ],
+            },
+          },
+        },
+      },
+    },
+    { $match: { $expr: { $gt: ["$latestIncomingAt", "$readAt"] } } },
+    { $count: "unreadCount" },
+  ]);
+  return result?.unreadCount || 0;
+};
+
 export {
   countUnreadSupportMessages,
+  countUnreadSupportMessagesInDatabase,
   markSupportMessagesRead,
   withSupportUnreadFlag,
 };

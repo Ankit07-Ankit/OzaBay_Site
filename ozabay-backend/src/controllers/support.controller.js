@@ -1,8 +1,9 @@
 import Joi from "joi";
+import mongoose from "mongoose";
 import User from "../models/user.model.js";
 import SupportMessage from "../models/support-message.model.js";
 import {
-  countUnreadSupportMessages,
+  countUnreadSupportMessagesInDatabase,
   markSupportMessagesRead as markMessagesReadForRecipient,
   withSupportUnreadFlag,
 } from "../services/support-notification.service.js";
@@ -55,11 +56,14 @@ export const listSupportMessages = async (req, res, next) => {
 
 export const getSupportUnreadCount = async (req, res, next) => {
   try {
-    const tickets = await SupportMessage.find({ userId: req.authUserId })
-      .select("createdAt replies.sender replies.createdAt userReadAt")
-      .lean();
+    const unreadCount = await countUnreadSupportMessagesInDatabase(
+      SupportMessage,
+      { userId: new mongoose.Types.ObjectId(req.authUserId) },
+      "user",
+    );
+    res.set("Cache-Control", "private, no-store");
     return res.status(200).json({
-      unreadCount: countUnreadSupportMessages(tickets, "user"),
+      unreadCount,
     });
   } catch (error) {
     return next(error);

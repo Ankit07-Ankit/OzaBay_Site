@@ -187,7 +187,7 @@ export default function VendorDashboard({ account, request }) {
 
   const refreshSupportUnreadCount = async () => {
     try {
-      const result = await request("/support/unread-count");
+      const result = await request("/support/unread-count", { cache: "no-store" });
       setSupportUnreadCount(Number(result.unreadCount) || 0);
     } catch (requestError) {
       console.warn("Unable to refresh support notifications:", requestError.message);

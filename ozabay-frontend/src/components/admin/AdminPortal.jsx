@@ -223,7 +223,7 @@ function AdminDashboard() {
   useEffect(() => {
     let active = true;
     const refreshSupportUnreadCount = () => {
-      request("/support/unread-count")
+      request("/support/unread-count", { cache: "no-store" })
         .then((result) => {
           if (active) setSupportUnreadCount(Number(result.unreadCount) || 0);
         })
