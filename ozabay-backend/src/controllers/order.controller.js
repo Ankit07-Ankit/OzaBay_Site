@@ -82,8 +82,15 @@ const formatOrderEmailDate = (date) =>
     timeZone: "Asia/Kolkata",
   }).format(new Date(date));
 
-const sendOrderNotification = async (order, { subject, heading, message, items }) => {
+const sendOrderNotification = async (
+  order,
+  { subject, heading, message, items, details = [], throwOnError = false },
+) => {
   try {
+    const paymentSummary =
+      order.paymentStatus === "paid" && order.paymentMethod === "Razorpay"
+        ? `Payment received: INR ${Number(order.paymentDetails?.amount ?? order.total).toFixed(2)} via ${order.paymentDetails?.method || "Razorpay"}. Transaction: ${order.razorpayPaymentId || order.paymentDetails?.transactionId || "confirmed"}.`
+        : "";
     const itemLines = items.map((item) =>
       `${item.name} × ${item.quantity}${item.fulfillmentStatus ? ` — ${item.fulfillmentStatus}` : ""}${item.deliveredAt ? ` — Delivered ${formatOrderEmailDate(item.deliveredAt)}` : ""}`,
     );
@@ -92,6 +99,10 @@ const sendOrderNotification = async (order, { subject, heading, message, items }
       "",
       message,
       "",
+      ...details,
+      ...(details.length ? [""] : []),
+      paymentSummary,
+      ...(paymentSummary ? [""] : []),
       `Order: #${String(order._id).slice(-8).toUpperCase()}`,
       `Order date: ${formatOrderEmailDate(order.createdAt)}`,
       ...itemLines,
@@ -114,6 +125,8 @@ const sendOrderNotification = async (order, { subject, heading, message, items }
         <h2>${escapeHtml(heading)}</h2>
         <p>Hi ${escapeHtml(order.customer.name)},</p>
         <p>${escapeHtml(message)}</p>
+        ${details.map((detail) => `<p>${escapeHtml(detail)}</p>`).join("")}
+        ${paymentSummary ? `<p><strong>${escapeHtml(paymentSummary)}</strong></p>` : ""}
         <p><strong>Order:</strong> #${escapeHtml(String(order._id).slice(-8).toUpperCase())}<br>
         <strong>Order date:</strong> ${escapeHtml(formatOrderEmailDate(order.createdAt))}</p>
         <ul>${itemHtml}</ul>
@@ -132,6 +145,7 @@ const sendOrderNotification = async (order, { subject, heading, message, items }
       subject,
       message: error?.message || String(error),
     });
+    if (throwOnError) throw error;
   }
 };
 
@@ -142,6 +156,32 @@ const sendOrderPlacedEmail = (order) =>
     message: "Thanks for shopping with OzaBay. Your order has been placed. We’ll email you as the vendor updates each product’s progress; the delivery date will be included once it is marked delivered.",
     items: order.items,
   });
+
+const sendPaymentFailedEmail = (order, payment) => {
+  const orderNumber = `#${String(order._id).slice(-8).toUpperCase()}`;
+  const amount = Number.isFinite(payment.amount)
+    ? (payment.amount / 100).toFixed(2)
+    : Number(order.total).toFixed(2);
+  const paymentMethod = payment.method || "Online payment";
+  const reason = payment.error_description || "The payment was declined by the payment provider.";
+  const wasOrderAlreadyPaid = order.paymentStatus === "paid";
+  const message = wasOrderAlreadyPaid
+    ? "One payment attempt failed, but this order is already confirmed from another payment. No action is needed for this failed attempt unless your bank account was debited."
+    : "This payment attempt failed and the order has not been confirmed. If your bank account was debited, contact your bank or Razorpay about the reversal before trying another payment.";
+  return sendOrderNotification(order, {
+    subject: `OzaBay payment attempt failed — ${orderNumber}`,
+    heading: "Payment attempt failed",
+    message,
+    items: [],
+    details: [
+      `Amount: INR ${amount}`,
+      `Payment method: ${paymentMethod}`,
+      `Payment ID: ${payment.id}`,
+      `Reason: ${reason}`,
+    ],
+    throwOnError: true,
+  });
+};
 
 const sendFulfillmentStatusEmail = (order, items, status) => {
   if (!CUSTOMER_EMAIL_FULFILLMENT_STATUSES.includes(status)) {
@@ -484,7 +524,7 @@ const handleRazorpayWebhook = async (req, res) => {
     return res.status(400).json({ message: "Invalid webhook payload." });
   }
 
-  if (!["payment.captured", "order.paid"].includes(event.event)) {
+  if (!["payment.captured", "order.paid", "payment.failed"].includes(event.event)) {
     return res.status(200).json({ received: true });
   }
 
@@ -504,6 +544,31 @@ const handleRazorpayWebhook = async (req, res) => {
         paymentId: payment.id,
         razorpayOrderId: payment.order_id,
       });
+      return res.status(200).json({ received: true });
+    }
+
+    if (event.event === "payment.failed") {
+      if (
+        payment.status !== "failed" ||
+        payment.amount !== Math.round(order.total * 100) ||
+        payment.currency !== "INR"
+      ) {
+        console.error("Razorpay failed payment does not match its OzaBay order:", {
+          orderId: String(order._id),
+          paymentId: payment.id,
+        });
+        return res.status(200).json({ received: true });
+      }
+
+      if (order.razorpayFailureEmailPaymentIds?.includes(payment.id)) {
+        return res.status(200).json({ received: true });
+      }
+
+      await sendPaymentFailedEmail(order, payment);
+      await Order.updateOne(
+        { _id: order._id },
+        { $addToSet: { razorpayFailureEmailPaymentIds: payment.id } },
+      );
       return res.status(200).json({ received: true });
     }
 

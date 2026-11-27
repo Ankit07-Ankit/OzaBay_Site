@@ -124,6 +124,7 @@ const orderSchema = new mongoose.Schema(
     },
     razorpayOrderId: { type: String, default: "" },
     razorpayPaymentId: { type: String, default: "" },
+    razorpayFailureEmailPaymentIds: { type: [String], default: [] },
     cancelledAt: { type: Date, default: null },
     cancellationRequestedBy: {
       type: String,

@@ -17,7 +17,7 @@ test("Razorpay webhook validates the signature against the raw request body", as
   }));
 
   const { port } = server.address();
-  const body = JSON.stringify({ event: "payment.failed" });
+  const body = JSON.stringify({ event: "payment.authorized" });
   const endpoint = `http://127.0.0.1:${port}/api/orders/razorpay/webhook`;
   const rejected = await fetch(endpoint, {
     method: "POST",
