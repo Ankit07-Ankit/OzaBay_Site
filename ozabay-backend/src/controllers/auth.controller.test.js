@@ -61,6 +61,7 @@ test("regular login authenticates admin credentials and creates an admin session
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.admin.email, "admin-test@example.com");
+  assert.ok(response.body.adminToken);
   assert.equal(response.cookieName, "adminToken");
   assert.ok(response.cookieValue);
   assert.equal(createSession.mock.calls.length, 1);

@@ -1299,6 +1299,10 @@ export default function App() {
     if (!response.ok)
       throw new Error(result.message || "Unable to sign in. Please try again.");
     if (result.admin) {
+      if (!result.adminToken) {
+        throw new Error("The admin session could not be created. Please try again.");
+      }
+      sessionStorage.setItem("ozabay-admin-token", result.adminToken);
       navigate("/admin", { replace: true });
       return;
     }

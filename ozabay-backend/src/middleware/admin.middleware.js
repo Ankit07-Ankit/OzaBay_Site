@@ -3,7 +3,8 @@ import config from "../config/config.js";
 import AdminSession from "../models/admin-session.model.js";
 
 const requireAdmin = async (req, res, next) => {
-  const token = req.cookies?.adminToken;
+  const bearerToken = req.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const token = bearerToken || req.cookies?.adminToken;
   if (!token) {
     return res.status(401).json({ message: "Admin authentication is required" });
   }

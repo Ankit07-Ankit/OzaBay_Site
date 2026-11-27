@@ -61,10 +61,11 @@ const adminLogin = async (req, res, next) => {
     ) {
       return res.status(401).json({ message: "Invalid admin email or password" });
     }
-    const admin = await createAdminSession(req, res);
+    const adminSession = await createAdminSession(req, res);
     return res.status(200).json({
       message: "Admin signed in successfully",
-      admin,
+      admin: { email: adminSession.email },
+      adminToken: adminSession.token,
     });
   } catch (loginError) {
     return next(loginError);

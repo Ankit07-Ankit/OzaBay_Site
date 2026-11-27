@@ -4,6 +4,7 @@ import { apiUrl } from "../../utils/api.js";
 import "./AdminPortal.css";
 
 const ADMIN_API = "/api/admin";
+const ADMIN_TOKEN_KEY = "ozabay-admin-token";
 
 const formatPrice = (price) =>
   new Intl.NumberFormat("en-IN", {
@@ -48,7 +49,7 @@ function AdminLogin() {
     setError("");
     setLoading(true);
     try {
-      await readResponse(
+      const result = await readResponse(
         await fetch(apiUrl(`${ADMIN_API}/login`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -56,6 +57,10 @@ function AdminLogin() {
           body: JSON.stringify({ email, password }),
         }),
       );
+      if (!result.adminToken) {
+        throw new Error("The admin session could not be created. Please try again.");
+      }
+      sessionStorage.setItem(ADMIN_TOKEN_KEY, result.adminToken);
       navigate("/admin", { replace: true });
     } catch (loginError) {
       setError(loginError.message);
@@ -126,15 +131,18 @@ function AdminDashboard() {
   const [reloadId, setReloadId] = useState(0);
 
   const request = useCallback(async (path, options = {}) => {
+    const adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
     const response = await fetch(apiUrl(`${ADMIN_API}${path}`), {
       ...options,
       credentials: "include",
       headers: {
+        ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
         ...(options.body ? { "Content-Type": "application/json" } : {}),
         ...options.headers,
       },
     });
     if (response.status === 401) {
+      sessionStorage.removeItem(ADMIN_TOKEN_KEY);
       navigate("/admin-login", { replace: true });
     }
     return readResponse(response);
@@ -381,6 +389,7 @@ function AdminDashboard() {
       setError(logoutError.message);
       return;
     }
+    sessionStorage.removeItem(ADMIN_TOKEN_KEY);
     navigate("/admin-login", { replace: true });
   };
 

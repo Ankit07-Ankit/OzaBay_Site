@@ -18,7 +18,7 @@ The admin console is available at `/admin-login` or by entering the administrato
 - `ADMIN_EMAIL`: the administrator's email address.
 - `ADMIN_PASSWORD_HASH`: a bcrypt hash of a strong administrator password. From `ozabay-backend`, generate one with `node --input-type=module -e 'import bcrypt from "bcryptjs"; import { createInterface } from "node:readline/promises"; const rl = createInterface({ input: process.stdin, output: process.stdout }); const password = await rl.question("Admin password: "); rl.close(); console.log(await bcrypt.hash(password, 12));'`.
 
-The admin login stays unavailable until both settings are configured. Admin sessions use an HTTP-only cookie and expire after one hour. The console can review accounts and marketplace listings, block or restore account access, and permanently remove accounts or products.
+The admin login stays unavailable until both settings are configured. Admin sessions expire after one hour; the admin panel uses a session-scoped bearer token for cross-origin API requests and retains the HTTP-only cookie for compatible same-site requests. The console can review accounts and marketplace listings, block or restore account access, and permanently remove accounts or products.
 
 ## Razorpay payments
 
