@@ -197,6 +197,42 @@ const sendFulfillmentStatusEmail = (order, items, status) => {
   });
 };
 
+const sendOrderRequestEmail = (
+  order,
+  item,
+  type,
+  status,
+  { refundPending = false } = {},
+) => {
+  const isReturn = type === "return";
+  const label = isReturn ? "Return" : "Cancellation";
+  const action = status === "requested"
+    ? "received"
+    : status === "approved"
+      ? "approved"
+      : "declined";
+  const message = status === "requested"
+    ? `We received your ${label.toLowerCase()} request. The vendor will review it, and we’ll email you with their decision.`
+    : status === "approved"
+      ? `The vendor approved your ${label.toLowerCase()} request.`
+      : `The vendor declined your ${label.toLowerCase()} request. Contact OzaBay support if you need help.`;
+  const request = item[isReturn ? "returnRequest" : "cancellationRequest"];
+  const details = request?.reason ? [`Reason: ${request.reason}`] : [];
+  if (refundPending) {
+    details.push(
+      "Refund status: pending. A manual refund has been flagged for follow-up; the funds have not yet been confirmed as returned.",
+    );
+  }
+
+  return sendOrderNotification(order, {
+    subject: `OzaBay ${label.toLowerCase()} request ${action} — #${String(order._id).slice(-8).toUpperCase()}`,
+    heading: `${label} request ${action}`,
+    message,
+    items: [item],
+    details,
+  });
+};
+
 const updateCustomerDeliveryDetails = async (customerId, details) => {
   const result = await User.updateOne(
     { _id: customerId, accountType: "user" },
@@ -705,6 +741,17 @@ const cancelCustomerOrder = async (req, res, next) => {
       });
     }
 
+    const orderNumber = `#${String(order._id).slice(-8).toUpperCase()}`;
+    await sendOrderNotification(order.toObject(), {
+      subject: `OzaBay order cancelled — ${orderNumber}`,
+      heading: "Your order has been cancelled",
+      message: paid
+        ? "Your order was cancelled. A manual refund has been flagged for follow-up; the funds have not yet been confirmed as returned."
+        : "Your order was cancelled successfully.",
+      items: order.items,
+      details: paid ? ["Refund status: pending."] : [],
+    });
+
     return res.status(200).json({
       message: paid
         ? "Order cancelled. A refund has been flagged for admin follow-up."
@@ -799,6 +846,11 @@ const requestCustomerReturn = async (req, res, next) => {
       });
     }
 
+    const item = order.items.find(
+      (entry) => String(entry.productId) === req.params.productId,
+    );
+    await sendOrderRequestEmail(order.toObject(), item, "return", "requested");
+
     return res.status(200).json({
       message: "Return request sent to the vendor for review.",
       order: formatCustomerOrder(order.toObject()),
@@ -864,6 +916,11 @@ const requestCustomerItemCancellation = async (req, res, next) => {
         message: "Cancellation requests are available only for Out for delivery products without a pending request.",
       });
     }
+    const item = order.items.find(
+      (entry) => String(entry.productId) === String(productId),
+    );
+    await sendOrderRequestEmail(order.toObject(), item, "cancellation", "requested");
+
     return res.status(200).json({
       message: "Cancellation request sent to the vendor for review.",
       order: formatCustomerOrder(order.toObject()),
@@ -1331,6 +1388,11 @@ const reviewVendorReturnRequest = async (req, res, next) => {
       });
     }
 
+    const item = order.items.find(
+      (entry) => String(entry.productId) === req.params.productId,
+    );
+    await sendOrderRequestEmail(order.toObject(), item, "return", value.status);
+
     const vendorItems = order.items.filter(
       (item) => String(item.vendorId) === String(req.authUserId),
     );
@@ -1440,6 +1502,16 @@ const reviewVendorItemCancellation = async (req, res, next) => {
         message: "This order changed while the cancellation request was being reviewed.",
       });
     }
+    const item = savedOrder.items.find(
+      (entry) => String(entry.productId) === String(productId),
+    );
+    await sendOrderRequestEmail(savedOrder.toObject(), item, "cancellation", value.status, {
+      refundPending:
+        value.status === "approved"
+        && savedOrder.paymentStatus === "paid"
+        && savedOrder.paymentDetails?.refundStatus === "pending",
+    });
+
     const savedVendorItems = savedOrder.items.filter(
       (item) => String(item.vendorId) === String(req.authUserId),
     );
@@ -1463,6 +1535,7 @@ export {
   cancelCustomerOrder,
   listCustomerOrders,
   listVendorOrders,
+  sendOrderRequestEmail,
   requestCustomerReturn,
   requestCustomerItemCancellation,
   reviewVendorItemCancellation,
