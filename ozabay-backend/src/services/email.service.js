@@ -130,7 +130,8 @@ const sendWithGmailApi = async (mailOptions) => {
 const sendEmail = async (to, subject, text, html) => {
   try {
     await sendWithGmailApi({
-      from: `"OzaBay" <${config.GOOGLE_USER}>`,
+      from: `"OzaBay" <${config.EMAIL_FROM}>`,
+      ...(config.EMAIL_REPLY_TO ? { replyTo: config.EMAIL_REPLY_TO } : {}),
       to,
       subject,
       text,

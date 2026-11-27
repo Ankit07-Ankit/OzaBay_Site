@@ -7,6 +7,8 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
 const googleRefreshToken = process.env.GOOGLE_REFRESH_TOKEN?.trim();
 const googleUser = process.env.GOOGLE_USER?.trim();
+const emailFrom = process.env.EMAIL_FROM?.trim() || googleUser;
+const emailReplyTo = process.env.EMAIL_REPLY_TO?.trim() || "";
 
 if (!process.env.MONGO_URI) {
   throw new Error("MONGO_URI is not defined in the environment variables");
@@ -46,6 +48,8 @@ const config = {
   GOOGLE_CLIENT_SECRET: googleClientSecret,
   GOOGLE_REFRESH_TOKEN: googleRefreshToken,
   GOOGLE_USER: googleUser,
+  EMAIL_FROM: emailFrom,
+  EMAIL_REPLY_TO: emailReplyTo,
   ADMIN_EMAIL: process.env.ADMIN_EMAIL?.trim().toLowerCase() || "",
   ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH || "",
 };
