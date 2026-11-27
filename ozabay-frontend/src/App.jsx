@@ -510,6 +510,10 @@ export default function App() {
       return null;
     }
   });
+  const [vendorSessionReady, setVendorSessionReady] = useState(
+    () => account?.accountType !== "vendor",
+  );
+  const [vendorSessionError, setVendorSessionError] = useState("");
   const [registeredProducts, setRegisteredProducts] = useState([]);
   const [registeredProductsLoaded, setRegisteredProductsLoaded] =
     useState(false);
@@ -1272,6 +1276,8 @@ export default function App() {
       setAccessToken(token);
     }
     setAccount(user);
+    setVendorSessionReady(true);
+    setVendorSessionError("");
     if (pendingCheckoutAuth.current && user.accountType === "user") {
       pendingCheckoutAuth.current = false;
       setModal("checkout");
@@ -1350,9 +1356,11 @@ export default function App() {
             setAccount(null);
             setAuthView("signin");
           }
-          throw new Error(
+          const error = new Error(
             result.message || "Your session has expired. Please sign in again.",
           );
+          error.status = response.status;
+          throw error;
         }
         if (!result.accessToken)
           throw new Error(
@@ -1524,6 +1532,50 @@ export default function App() {
     }
     return result;
   };
+  useEffect(() => {
+    if (account?.accountType !== "vendor") {
+      setVendorSessionReady(true);
+      setVendorSessionError("");
+      return;
+    }
+
+    let active = true;
+    setVendorSessionReady(false);
+    setVendorSessionError("");
+    requestAuthenticatedApi("/auth/me")
+      .then(({ user }) => {
+        if (!user?.id || !user.accountType) {
+          throw new Error("The server returned an invalid account session.");
+        }
+        const verifiedAccount = {
+          ...account,
+          ...user,
+          _id: user.id || account._id,
+        };
+        localStorage.setItem("ozabay-account", JSON.stringify(verifiedAccount));
+        if (active) setAccount(verifiedAccount);
+      })
+      .catch((error) => {
+        if (!active) return;
+        if (error.status === 401 || error.status === 403) {
+          sessionStorage.removeItem("ozabay-access-token");
+          localStorage.removeItem("ozabay-account");
+          setAccessToken("");
+          setAccount(null);
+          return;
+        }
+        setVendorSessionError(
+          error.message || "Unable to verify your vendor session.",
+        );
+      })
+      .finally(() => {
+        if (active) setVendorSessionReady(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [account?.accountType]);
   const cancelCustomerOrder = async (orderId) => {
     const result = await requestAuthenticatedApi(
       `/orders/${encodeURIComponent(orderId)}/cancel`,
@@ -1739,6 +1791,8 @@ export default function App() {
     sessionStorage.removeItem("ozabay-access-token");
     setAccessToken("");
     setAccount(null);
+    setVendorSessionReady(true);
+    setVendorSessionError("");
     setVendorProducts([]);
     setVendorProductsLoaded(false);
     setVendorRoute(false);
@@ -1901,7 +1955,22 @@ export default function App() {
       />
       <main id="home">
         {vendorRoute ? (
-          account?.accountType === "vendor" ? (
+          !vendorSessionReady ? (
+            <section className="vendor-access-page" role="status">
+              <div className="oz-container">
+                Verifying your private maker studio session…
+              </div>
+            </section>
+          ) : vendorSessionError ? (
+            <section className="vendor-access-page" role="alert">
+              <div className="oz-container">
+                <p>{vendorSessionError}</p>
+                <button className="hero-action" onClick={() => window.location.reload()}>
+                  Retry
+                </button>
+              </div>
+            </section>
+          ) : account?.accountType === "vendor" ? (
             <Suspense fallback={<div className="catalog-loading">Loading maker studio…</div>}>
               <VendorDashboard
                 account={account}

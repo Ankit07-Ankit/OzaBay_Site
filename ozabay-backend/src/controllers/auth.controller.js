@@ -357,8 +357,6 @@ const getMe = async (req, res) => {
 
   const decoded = jwt.verify(token, config.JWT_SECRET);
 
-  console.log("Decoded token:", decoded);
-
   const user = await userModel.findById(decoded.userId).select("-password");
   if (!user) {
     return res.status(404).json({ message: "User not found" });
