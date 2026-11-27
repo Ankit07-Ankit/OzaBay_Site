@@ -65,6 +65,7 @@ const CUSTOMER_EMAIL_FULFILLMENT_STATUSES = [
   "Shipped",
   "Out for delivery",
   "Delivered",
+  "Cancelled",
 ];
 
 const escapeHtml = (value) =>
@@ -139,11 +140,14 @@ const sendOrderNotification = async (
       </div>`;
     await sendEmail(order.customer.email, subject, text, html);
   } catch (error) {
+    const mailError = error?.cause || error;
     console.error("Order email notification could not be delivered:", {
       orderId: String(order?._id || "unknown"),
       recipient: order?.customer?.email || "unknown",
       subject,
-      message: error?.message || String(error),
+      statusCode: mailError?.statusCode,
+      code: mailError?.code,
+      message: mailError?.message || String(mailError),
     });
     if (throwOnError) throw error;
   }
@@ -192,7 +196,9 @@ const sendFulfillmentStatusEmail = (order, items, status) => {
     heading: `Your order is ${status.toLowerCase()}`,
     message: status === "Delivered"
       ? "Your product has been marked delivered by the vendor. The delivery date is shown below."
-      : `The vendor updated your product status to ${status}.`,
+      : status === "Cancelled"
+        ? "The vendor cancelled this product in your order. Contact OzaBay support if you need help with the cancellation or payment."
+        : `The vendor updated your product status to ${status}.`,
     items,
   });
 };
