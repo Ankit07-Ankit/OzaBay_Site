@@ -208,7 +208,7 @@ body{overflow-x:hidden}
 }
 .product-image img{
   transition:transform 1.8s cubic-bezier(.22,1,.36,1),filter 1.15s ease!important;
-  transform-origin:var(--pointer-x,50%) var(--pointer-y,50%);
+  transform-origin:50% 50%;
 }
 .product-card:hover .product-image img{
   transform:scale(1.038) translate3d(0,-1px,0)!important;
