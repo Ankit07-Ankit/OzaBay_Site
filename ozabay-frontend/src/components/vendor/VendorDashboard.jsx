@@ -2026,6 +2026,10 @@ export default function VendorDashboard({ account, request }) {
                             {VENDOR_FULFILLMENT_STATUSES.map((status) => {
                               const actionId = `${order._id}:${item.productId}`;
                               const isUpdating = orderActionId === actionId;
+                              const currentStatusIndex = VENDOR_FULFILLMENT_STATUSES.indexOf(
+                                item.fulfillmentStatus || "Received",
+                              );
+                              const statusIndex = VENDOR_FULFILLMENT_STATUSES.indexOf(status);
                               return (
                                 <button
                                   key={status}
@@ -2034,7 +2038,7 @@ export default function VendorDashboard({ account, request }) {
                                   aria-pressed={item.fulfillmentStatus === status}
                                   disabled={
                                     isUpdating
-                                    || item.fulfillmentStatus === status
+                                    || statusIndex <= currentStatusIndex
                                     || item.cancellationRequest?.status === "requested"
                                   }
                                   onClick={() =>

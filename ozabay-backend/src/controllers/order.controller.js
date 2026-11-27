@@ -46,8 +46,16 @@ const verifyPaymentSchema = Joi.object({
   razorpay_signature: Joi.string().pattern(/^[a-fA-F0-9]{64}$/).required(),
 });
 
+const FULFILLMENT_STATUSES = [
+  "Received",
+  "Crafting",
+  "Shipped",
+  "Out for delivery",
+  "Delivered",
+];
+
 const vendorFulfillmentSchema = Joi.object({
-  status: Joi.string().valid("Received", "Crafting", "Shipped", "Out for delivery", "Delivered", "Cancelled").required(),
+  status: Joi.string().valid(...FULFILLMENT_STATUSES).required(),
 });
 
 const returnRequestSchema = Joi.object({
@@ -59,14 +67,12 @@ const vendorReturnDecisionSchema = Joi.object({
 });
 
 const RETURN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const CUSTOMER_EMAIL_FULFILLMENT_STATUSES = [
-  "Received",
-  "Crafting",
-  "Shipped",
-  "Out for delivery",
-  "Delivered",
-  "Cancelled",
-];
+const CUSTOMER_EMAIL_FULFILLMENT_STATUSES = FULFILLMENT_STATUSES;
+
+const getEarlierFulfillmentStatuses = (status) => {
+  const statusIndex = FULFILLMENT_STATUSES.indexOf(status);
+  return statusIndex > 0 ? FULFILLMENT_STATUSES.slice(0, statusIndex) : [];
+};
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -82,6 +88,27 @@ const formatOrderEmailDate = (date) =>
     dateStyle: "long",
     timeZone: "Asia/Kolkata",
   }).format(new Date(date));
+
+const hasPaidForOrderItem = (order, item) =>
+  order.paymentStatus === "paid"
+  || (
+    order.paymentMethod === "Cash on delivery"
+    && item?.cashOnDelivery?.status === "paid"
+  );
+
+const setManualRefundPending = (order, action, item) => {
+  const itemName = item?.name || "order item";
+  const itemTotal = Number(item?.lineTotal || 0).toFixed(2);
+  const note = `Manual refund follow-up required for ${action} ${itemName} (INR ${itemTotal}).`;
+  if (!order.paymentDetails) order.paymentDetails = {};
+  const notes = String(order.paymentDetails?.refundNote || "")
+    .split("\n")
+    .filter(Boolean);
+  if (!notes.includes(note)) notes.push(note);
+  order.paymentDetails.refundStatus = "pending";
+  order.paymentDetails.refundNote = notes.join("\n");
+  return order.paymentDetails.refundNote;
+};
 
 const sendOrderNotification = async (
   order,
@@ -196,9 +223,7 @@ const sendFulfillmentStatusEmail = (order, items, status) => {
     heading: `Your order is ${status.toLowerCase()}`,
     message: status === "Delivered"
       ? "Your product has been marked delivered by the vendor. The delivery date is shown below."
-      : status === "Cancelled"
-        ? "The vendor cancelled this product in your order. Contact OzaBay support if you need help with the cancellation or payment."
-        : `The vendor updated your product status to ${status}.`,
+      : `The vendor updated your product status to ${status}.`,
     items,
   });
 };
@@ -638,7 +663,7 @@ const cancelCustomerOrder = async (req, res, next) => {
     const currentOrder = await Order.findOne({
       _id: req.params.orderId,
       customerId: req.authUserId,
-    }).select("orderStatus paymentStatus paymentMethod total razorpayOrderId items.fulfillmentStatus");
+    });
     if (!currentOrder) {
       return res.status(404).json({ message: "Order not found." });
     }
@@ -652,6 +677,11 @@ const cancelCustomerOrder = async (req, res, next) => {
       return res.status(200).json({
         message: "This order has already been cancelled.",
         order: await Order.findById(currentOrder._id).lean(),
+      });
+    }
+    if (currentOrder.items.some((item) => item.fulfillmentStatus === "Delivered")) {
+      return res.status(409).json({
+        message: "An item has already been delivered. Request a return for that product instead.",
       });
     }
     if (
@@ -695,6 +725,10 @@ const cancelCustomerOrder = async (req, res, next) => {
       }
     }
 
+    const cashPaidItems = currentOrder.paymentMethod === "Cash on delivery"
+      ? currentOrder.items.filter((item) => item.cashOnDelivery?.status === "paid")
+      : [];
+    const refundPending = paid || cashPaidItems.length > 0;
     const update = {
       $set: {
         orderStatus: "Cancelled",
@@ -703,10 +737,13 @@ const cancelCustomerOrder = async (req, res, next) => {
         "items.$[item].fulfillmentStatus": "Cancelled",
       },
     };
-    if (paid) {
+    if (refundPending) {
       update.$set["paymentDetails.refundStatus"] = "pending";
-      update.$set["paymentDetails.refundNote"] =
-        "Manual refund required after customer cancellation.";
+      update.$set["paymentDetails.refundNote"] = cashPaidItems.length
+        ? cashPaidItems
+          .map((item) => `Manual refund follow-up required after cancellation for ${item.name} (INR ${Number(item.lineTotal || 0).toFixed(2)}).`)
+          .join("\n")
+        : "Manual refund follow-up required after customer cancellation.";
       if (capturedPayment) {
         update.$set.paymentStatus = "paid";
         update.$set.razorpayPaymentId = capturedPayment.id;
@@ -751,15 +788,15 @@ const cancelCustomerOrder = async (req, res, next) => {
     await sendOrderNotification(order.toObject(), {
       subject: `OzaBay order cancelled — ${orderNumber}`,
       heading: "Your order has been cancelled",
-      message: paid
+      message: refundPending
         ? "Your order was cancelled. A manual refund has been flagged for follow-up; the funds have not yet been confirmed as returned."
         : "Your order was cancelled successfully.",
       items: order.items,
-      details: paid ? ["Refund status: pending."] : [],
+      details: refundPending ? ["Refund status: pending."] : [],
     });
 
     return res.status(200).json({
-      message: paid
+      message: refundPending
         ? "Order cancelled. A refund has been flagged for admin follow-up."
         : "Order cancelled successfully.",
       order: formatCustomerOrder(order.toObject()),
@@ -1009,11 +1046,30 @@ const updateVendorOrderStatus = async (req, res, next) => {
     const { status } = await vendorFulfillmentSchema.validateAsync(req.body, {
       abortEarly: true,
     });
+    const earlierStatuses = getEarlierFulfillmentStatuses(status);
+    if (!earlierStatuses.length) {
+      return res.status(409).json({
+        message: "Products cannot move back to or repeat their current fulfillment status.",
+      });
+    }
     const previousOrder = await Order.findOne({
       _id: req.params.orderId,
       "items.vendorId": req.authUserId,
       orderStatus: { $nin: ["Awaiting payment", "Payment failed", "Cancelled"] },
     }).select("items").lean();
+    if (!previousOrder) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+    const hasItemsToAdvance = previousOrder.items.some(
+      (item) =>
+        String(item.vendorId) === String(req.authUserId)
+        && earlierStatuses.includes(item.fulfillmentStatus || "Received"),
+    );
+    if (!hasItemsToAdvance) {
+      return res.status(409).json({
+        message: "No products in this order can move to that fulfillment status. Refresh and try again.",
+      });
+    }
     const order = await Order.findOneAndUpdate(
       {
         _id: req.params.orderId,
@@ -1022,7 +1078,7 @@ const updateVendorOrderStatus = async (req, res, next) => {
         items: {
           $elemMatch: {
             vendorId: req.authUserId,
-            fulfillmentStatus: { $ne: "Cancelled" },
+            fulfillmentStatus: { $in: earlierStatuses },
           },
         },
       },
@@ -1033,14 +1089,16 @@ const updateVendorOrderStatus = async (req, res, next) => {
         arrayFilters: [
           {
             "item.vendorId": req.authUserId,
-            "item.fulfillmentStatus": { $ne: "Cancelled" },
+            "item.fulfillmentStatus": { $in: earlierStatuses },
           },
         ],
         new: true,
       },
     );
     if (!order) {
-      return res.status(404).json({ message: "Order not found." });
+      return res.status(409).json({
+        message: "The order status changed before this update. Refresh and try again.",
+      });
     }
 
     if (status === "Delivered") {
@@ -1132,6 +1190,12 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
     const { status } = await vendorFulfillmentSchema.validateAsync(req.body, {
       abortEarly: true,
     });
+    const earlierStatuses = getEarlierFulfillmentStatuses(status);
+    if (!earlierStatuses.length) {
+      return res.status(409).json({
+        message: "Products cannot move back to or repeat their current fulfillment status.",
+      });
+    }
     const productId = new mongoose.Types.ObjectId(req.params.productId);
     const order = await Order.findOneAndUpdate(
       {
@@ -1141,7 +1205,7 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
           $elemMatch: {
             productId,
             vendorId: req.authUserId,
-            fulfillmentStatus: { $nin: ["Cancelled", status] },
+            fulfillmentStatus: { $in: earlierStatuses },
             "cancellationRequest.status": { $ne: "requested" },
           },
         },
@@ -1154,7 +1218,7 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
           {
             "item.productId": productId,
             "item.vendorId": req.authUserId,
-            "item.fulfillmentStatus": { $nin: ["Cancelled", status] },
+            "item.fulfillmentStatus": { $in: earlierStatuses },
             "item.cancellationRequest.status": { $ne: "requested" },
           },
         ],
@@ -1162,8 +1226,8 @@ const updateVendorOrderItemStatus = async (req, res, next) => {
       },
     );
     if (!order) {
-      return res.status(404).json({
-        message: "Active product order not found for this vendor.",
+      return res.status(409).json({
+        message: "This product cannot move to that fulfillment status. It may already be there or farther along.",
       });
     }
 
@@ -1397,7 +1461,15 @@ const reviewVendorReturnRequest = async (req, res, next) => {
     const item = order.items.find(
       (entry) => String(entry.productId) === req.params.productId,
     );
-    await sendOrderRequestEmail(order.toObject(), item, "return", value.status);
+    const refundPending =
+      value.status === "approved" && hasPaidForOrderItem(order, item);
+    if (refundPending) {
+      setManualRefundPending(order, "return of", item);
+      await order.save();
+    }
+    await sendOrderRequestEmail(order.toObject(), item, "return", value.status, {
+      refundPending,
+    });
 
     const vendorItems = order.items.filter(
       (item) => String(item.vendorId) === String(req.authUserId),
@@ -1475,6 +1547,12 @@ const reviewVendorItemCancellation = async (req, res, next) => {
       });
     }
 
+    const cancelledItem = order.items.find(
+      (item) => String(item.productId) === String(productId),
+    );
+    const refundPending =
+      value.status === "approved" && hasPaidForOrderItem(order, cancelledItem);
+
     const allItemsCancelled = order.items.every(
       (item) => item.fulfillmentStatus === "Cancelled",
     );
@@ -1484,10 +1562,8 @@ const reviewVendorItemCancellation = async (req, res, next) => {
       orderUpdate.cancelledAt = reviewedAt;
       orderUpdate.cancellationRequestedBy = "customer";
     }
-    if (value.status === "approved" && order.paymentStatus === "paid") {
-      order.paymentDetails.refundStatus = "pending";
-      order.paymentDetails.refundNote =
-        `Manual refund follow-up required for cancelled product ${order.items.find((item) => String(item.productId) === String(productId))?.name || String(productId)} (${order.items.find((item) => String(item.productId) === String(productId))?.lineTotal || 0}).`;
+    if (refundPending) {
+      setManualRefundPending(order, "cancellation of", cancelledItem);
       orderUpdate["paymentDetails.refundStatus"] = "pending";
       orderUpdate["paymentDetails.refundNote"] = order.paymentDetails.refundNote;
     }
@@ -1513,9 +1589,7 @@ const reviewVendorItemCancellation = async (req, res, next) => {
     );
     await sendOrderRequestEmail(savedOrder.toObject(), item, "cancellation", value.status, {
       refundPending:
-        value.status === "approved"
-        && savedOrder.paymentStatus === "paid"
-        && savedOrder.paymentDetails?.refundStatus === "pending",
+        refundPending && savedOrder.paymentDetails?.refundStatus === "pending",
     });
 
     const savedVendorItems = savedOrder.items.filter(

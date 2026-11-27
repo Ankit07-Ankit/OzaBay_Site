@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { money } from "../../utils/formatCurrency.js";
-import { apiUrl } from "../../utils/api.js";
 import "./AccountSection.css";
 
 function passwordScore(value) {
@@ -82,6 +81,7 @@ export default function AccountSection({
   onSaveProfile,
   onRequestPasswordChange,
   onConfirmPasswordChange,
+  onGeocodeLocation,
   onSaveLocation,
   onRemoveFavorite,
   onRemoveBag,
@@ -620,17 +620,7 @@ export default function AccountSection({
 
       const { latitude, longitude } = position.coords;
 
-      const response = await fetch(apiUrl("/api/geocode"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat: latitude, lng: longitude }),
-      });
-
-      const geocodeData = await response.json();
-
-      if (!response.ok) {
-        throw new Error(geocodeData.message || "Geocoding failed");
-      }
+      const geocodeData = await onGeocodeLocation({ lat: latitude, lng: longitude });
 
       const { building, area, locality, city, state, pincode } = geocodeData;
 
@@ -1483,6 +1473,9 @@ export default function AccountSection({
                     ? "Finding your location…"
                     : "Use my current location"}
                 </button>
+                <p className="account-section__hint">
+                  Address data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>.
+                </p>
                 <div className="account-section__delivery-fields">
                   <label>
                     Flat / House / Building name *
@@ -2326,7 +2319,7 @@ export default function AccountSection({
                                       <p>
                                         {item.returnRequest.status ===
                                         "approved"
-                                          ? "The artisan approved your return. Courier pickup and refund to your payment method are being arranged."
+                                          ? "The artisan approved your return. OzaBay support will follow up with return collection instructions and, if you have paid, the refund status."
                                           : item.returnRequest.status ===
                                               "rejected"
                                             ? "The maker was unable to accept this return. If eligible, you may submit again or reach our Customer Concierge."
@@ -2543,8 +2536,8 @@ export default function AccountSection({
                         </span>
                         {order.paymentDetails?.refundStatus === "pending" && (
                           <span className="account-section__refund-note">
-                            Refund pending admin follow-up. Your payment remains
-                            recorded as paid until refunded.
+                            Refund follow-up is pending. OzaBay support will
+                            confirm when processing is complete.
                           </span>
                         )}
                       </div>
@@ -2599,8 +2592,9 @@ export default function AccountSection({
                           <div className="account-section__cancel-confirm-body">
                             <strong>Cancel Order #{order.id}?</strong>
                             <p>
-                              {order.paymentStatus === "paid"
-                                ? "This order was paid. Its payment will remain recorded until an administrator processes your refund."
+                              {(order.paymentStatus === "paid"
+                                || (order.items || []).some((item) => item.cashOnDelivery?.status === "paid"))
+                                ? "Payment has been collected for this order. A refund may require manual follow-up; OzaBay will confirm the status."
                                 : "Are you sure you want to cancel this order? This action cannot be undone."}
                             </p>
                           </div>

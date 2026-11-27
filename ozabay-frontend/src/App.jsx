@@ -260,11 +260,11 @@ function SupportModal({ onClose, onGoToOrders }) {
     },
     {
       q: "What is your return and refund policy?",
-      a: "You can request a return on any item within 7 days of delivery. Open your Account → Orders, find the item and select 'Request return'. Approved returns are refunded to your original payment method within 7–10 business days.",
+      a: "You can request a return on an item within 7 days of delivery. Open your Account → Orders and select 'Request return'. The maker reviews the request. If a paid item is approved, OzaBay support will follow up about the refund; the refund is not automatic.",
     },
     {
       q: "How do I cancel an order?",
-      a: "Orders can be cancelled before the maker begins crafting. Open Account → Orders and click 'Cancel order'. Once production starts, cancellation may not be possible—contact support immediately if needed.",
+      a: "You can cancel an order before any item is delivered or out for delivery. Open Account → Orders and choose 'Cancel order'. For an item already out for delivery, submit a cancellation request for that item and wait for the maker's decision.",
     },
     {
       q: "How are makers verified on OzaBay?",
@@ -284,12 +284,12 @@ function SupportModal({ onClose, onGoToOrders }) {
     {
       title: "Shipping & Delivery",
       icon: "🚚",
-      body: "Standard delivery across India: 5–9 business days after dispatch. Expedited delivery available for select pin codes. Free shipping on orders above ₹2,000. We ship using trusted courier partners with real-time tracking.",
+      body: "Standard delivery across India: 5–9 business days after dispatch. Expedited delivery available for select pin codes. Free shipping on orders above ₹2,000. Makers update each order's progress in your account.",
     },
     {
       title: "Returns & Refunds",
       icon: "↩",
-      body: "7-day return window from the date of delivery. Items must be unused and in original packaging. Raise a return request via Account → Orders. Refunds processed within 7–10 business days to original payment method.",
+      body: "7-day return window from the date of delivery. Raise a return request via Account → Orders. The maker reviews each request and support follows up about collection. If a paid item is approved, OzaBay support will confirm the refund status; processing is not automatic.",
     },
     {
       title: "Privacy Policy",
@@ -1533,6 +1533,11 @@ export default function App() {
     }
     return result;
   };
+  const geocodeDeliveryLocation = (coordinates) =>
+    requestAuthenticatedApi("/geocode", {
+      method: "POST",
+      body: JSON.stringify(coordinates),
+    });
   useEffect(() => {
     if (account?.accountType !== "vendor") {
       setVendorSessionReady(true);
@@ -3417,6 +3422,7 @@ export default function App() {
                       onSaveProfile={updateProfile}
                       onRequestPasswordChange={requestPasswordChange}
                       onConfirmPasswordChange={confirmPasswordChange}
+                      onGeocodeLocation={geocodeDeliveryLocation}
                       onSaveLocation={saveDeliveryLocation}
                       onRemoveFavorite={(id) =>
                         setWish((current) =>

@@ -879,9 +879,12 @@ function AdminDashboard() {
                             )}
                             {payment.paidAt && <small>Paid {formatDateTime(payment.paidAt)}</small>}
                             {payment.refundStatus === "pending" && (
-                              <small className="admin-refund-follow-up">
-                                Manual refund follow-up required
-                              </small>
+                              <>
+                                <small className="admin-refund-follow-up">
+                                  Manual refund follow-up required
+                                </small>
+                                {payment.refundNote && <small>{payment.refundNote}</small>}
+                              </>
                             )}
                           </td>
                           <td>
