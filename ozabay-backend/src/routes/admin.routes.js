@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   adminLogin,
   adminLogout,
+  getAdminSession,
   deleteAccount,
   deleteProduct,
   getSummary,
@@ -26,6 +27,7 @@ const adminRouter = Router();
 adminRouter.post("/login", adminLogin);
 adminRouter.use(requireAdmin);
 adminRouter.post("/logout", adminLogout);
+adminRouter.get("/session", getAdminSession);
 adminRouter.get("/summary", getSummary);
 adminRouter.get("/accounts", listAccounts);
 adminRouter.get("/orders", listOrders);

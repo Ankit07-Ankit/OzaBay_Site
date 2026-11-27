@@ -14,6 +14,34 @@ const [{ default: AdminSession }, { default: requireAdmin }] = await Promise.all
   import("./admin.middleware.js"),
 ]);
 
+test("admin middleware rejects requests without an admin token", async () => {
+  const response = {
+    statusCode: undefined,
+    body: undefined,
+    status(statusCode) {
+      this.statusCode = statusCode;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
+  };
+  let nextCalled = false;
+
+  await requireAdmin(
+    { cookies: {}, get: () => undefined },
+    response,
+    () => {
+      nextCalled = true;
+    },
+  );
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(response.body.message, "Admin authentication is required");
+  assert.equal(nextCalled, false);
+});
+
 test("admin middleware accepts a bearer token when the cross-origin cookie is unavailable", async (t) => {
   const sessionId = "admin-session-test-id";
   const findSession = t.mock.method(AdminSession, "findOne", async () => ({

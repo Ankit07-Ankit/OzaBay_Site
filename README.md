@@ -13,7 +13,7 @@ Set `VITE_API_BASE_URL` only when intentionally using a separate API origin. The
 
 ## Super admin access
 
-The admin console is available at `/admin-login` or by entering the administrator credentials on the regular sign-in page. Admin access remains separate from customer and vendor accounts. Configure these values in `ozabay-backend/.env` before signing in:
+The admin console sign-in is available at `/ozabay-control-7e4c9d` or by entering the administrator credentials on the regular sign-in page. The dashboard requires a server-verified admin session, and the old `/admin` and `/admin-login` paths redirect away. The non-obvious URL is only an extra layer of obscurity; it is not a replacement for authentication. Admin access remains separate from customer and vendor accounts. Configure these values in `ozabay-backend/.env` before signing in:
 
 - `ADMIN_EMAIL`: the administrator's email address.
 - `ADMIN_PASSWORD_HASH`: a bcrypt hash of a strong administrator password. From `ozabay-backend`, generate one with `node --input-type=module -e 'import bcrypt from "bcryptjs"; import { createInterface } from "node:readline/promises"; const rl = createInterface({ input: process.stdin, output: process.stdout }); const password = await rl.question("Admin password: "); rl.close(); console.log(await bcrypt.hash(password, 12));'`.

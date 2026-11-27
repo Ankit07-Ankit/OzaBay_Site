@@ -15,6 +15,7 @@ import { REGIONAL_CRAFT_PRODUCTS } from "./data/regionalCraftProducts.js";
 import { ARTISANS, CUSTOM_PRICES } from "./data/siteContent.js";
 import { money } from "./utils/formatCurrency.js";
 import { apiUrl } from "./utils/api.js";
+import { ADMIN_DASHBOARD_PATH, ADMIN_TOKEN_KEY } from "./utils/routes.js";
 import LazyVideo from "./components/shared/LazyVideo.jsx";
 import "./index.css";
 import "./premium-upgrades.css";
@@ -1308,8 +1309,8 @@ export default function App() {
       if (!result.adminToken) {
         throw new Error("The admin session could not be created. Please try again.");
       }
-      sessionStorage.setItem("ozabay-admin-token", result.adminToken);
-      navigate("/admin", { replace: true });
+      sessionStorage.setItem(ADMIN_TOKEN_KEY, result.adminToken);
+      navigate(ADMIN_DASHBOARD_PATH, { replace: true });
       return;
     }
     finishAuthentication({ ...result.user, accessToken: result.accessToken });

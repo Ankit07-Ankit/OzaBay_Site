@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { apiUrl } from "../../utils/api.js";
+import {
+  ADMIN_DASHBOARD_PATH,
+  ADMIN_PATH,
+  ADMIN_TOKEN_KEY,
+} from "../../utils/routes.js";
 import "./AdminPortal.css";
 
 const ADMIN_API = "/api/admin";
-const ADMIN_TOKEN_KEY = "ozabay-admin-token";
 
 const formatPrice = (price) =>
   new Intl.NumberFormat("en-IN", {
@@ -32,7 +36,9 @@ const formatLabel = (value) =>
 async function readResponse(response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.message || "The admin request could not be completed");
+    const error = new Error(payload.message || "The admin request could not be completed");
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -61,7 +67,7 @@ function AdminLogin() {
         throw new Error("The admin session could not be created. Please try again.");
       }
       sessionStorage.setItem(ADMIN_TOKEN_KEY, result.adminToken);
-      navigate("/admin", { replace: true });
+      navigate(ADMIN_DASHBOARD_PATH, { replace: true });
     } catch (loginError) {
       setError(loginError.message);
     } finally {
@@ -106,6 +112,60 @@ function AdminLogin() {
   );
 }
 
+function AdminRouteGuard() {
+  const navigate = useNavigate();
+  const [authorized, setAuthorized] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+    fetch(apiUrl(`${ADMIN_API}/session`), {
+      credentials: "include",
+      headers: adminToken ? { Authorization: `Bearer ${adminToken}` } : {},
+    })
+      .then(readResponse)
+      .then(() => {
+        if (active) setAuthorized(true);
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        if (requestError.status === 401 || requestError.status === 403) {
+          sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+          navigate(ADMIN_PATH, { replace: true });
+          return;
+        }
+        setError(requestError.message);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
+
+  if (error) {
+    return (
+      <main className="admin-login-page">
+        <div className="admin-login-card">
+          <h1>Unable to verify admin access</h1>
+          <p className="admin-error" role="alert">{error}</p>
+          <button
+            className="admin-primary-button"
+            type="button"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+        </div>
+      </main>
+    );
+  }
+  if (!authorized) {
+    return <main className="admin-login-page" role="status">Verifying admin access…</main>;
+  }
+  return <AdminDashboard />;
+}
+
 function AdminDashboard() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("accounts");
@@ -141,9 +201,9 @@ function AdminDashboard() {
         ...options.headers,
       },
     });
-    if (response.status === 401) {
+    if (response.status === 401 || response.status === 403) {
       sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-      navigate("/admin-login", { replace: true });
+      navigate(ADMIN_PATH, { replace: true });
     }
     return readResponse(response);
   }, [navigate]);
@@ -390,7 +450,7 @@ function AdminDashboard() {
       return;
     }
     sessionStorage.removeItem(ADMIN_TOKEN_KEY);
-    navigate("/admin-login", { replace: true });
+    navigate(ADMIN_PATH, { replace: true });
   };
 
   return (
@@ -865,7 +925,7 @@ function AdminDashboard() {
 
 export default function AdminPortal() {
   const { pathname } = useLocation();
-  if (pathname === "/admin-login") return <AdminLogin />;
-  if (pathname === "/admin" || pathname.startsWith("/admin/")) return <AdminDashboard />;
-  return <Navigate to="/admin-login" replace />;
+  if (pathname === ADMIN_PATH) return <AdminLogin />;
+  if (pathname === ADMIN_DASHBOARD_PATH) return <AdminRouteGuard />;
+  return <Navigate to="/" replace />;
 }

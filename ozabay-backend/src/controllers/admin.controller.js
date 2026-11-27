@@ -89,6 +89,9 @@ const adminLogout = async (req, res, next) => {
   }
 };
 
+const getAdminSession = (req, res) =>
+  res.status(200).json({ admin: { email: req.adminEmail } });
+
 const getSummary = async (req, res, next) => {
   try {
     const [users, vendors, blockedAccounts, products, orders, paidOrders] = await Promise.all([
@@ -400,6 +403,7 @@ const deleteSupportMessage = async (req, res, next) => {
 export {
   adminLogin,
   adminLogout,
+  getAdminSession,
   deleteAccount,
   deleteProduct,
   getSummary,
