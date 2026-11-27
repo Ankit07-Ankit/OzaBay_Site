@@ -1,5 +1,3 @@
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import Joi from "joi";
 import mongoose from "mongoose";
 import config from "../config/config.js";
@@ -16,6 +14,11 @@ import {
   markSupportMessagesRead as markMessagesReadForRecipient,
   withSupportUnreadFlag,
 } from "../services/support-notification.service.js";
+import {
+  createAdminSession,
+  isAdminLoginConfigured,
+  verifyAdminPassword,
+} from "../services/admin-auth.service.js";
 import { removeVendorProduct } from "./vendor-product.controller.js";
 
 const adminLoginSchema = Joi.object({
@@ -38,15 +41,6 @@ const getPagination = (query) => paginationSchema.validate(query, {
   convert: true,
 });
 
-const setAdminCookie = (res, token) => {
-  res.cookie("adminToken", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-    maxAge: 60 * 60 * 1000,
-  });
-};
-
 const adminLogin = async (req, res, next) => {
   const { error, value } = adminLoginSchema.validate(req.body, {
     abortEarly: true,
@@ -55,42 +49,22 @@ const adminLogin = async (req, res, next) => {
   if (error) {
     return res.status(400).json({ message: error.details[0].message });
   }
-  if (!config.ADMIN_EMAIL || !config.ADMIN_PASSWORD_HASH) {
+  if (!isAdminLoginConfigured()) {
     return res.status(503).json({ message: "Admin login has not been configured" });
   }
 
   try {
-    const passwordMatches = await bcrypt.compare(
-      value.password,
-      config.ADMIN_PASSWORD_HASH,
-    );
+    const passwordMatches = await verifyAdminPassword(value.password);
     if (
-      value.email.toLowerCase() !== config.ADMIN_EMAIL
-      || !passwordMatches
+      !passwordMatches
+      || value.email.toLowerCase() !== config.ADMIN_EMAIL
     ) {
       return res.status(401).json({ message: "Invalid admin email or password" });
     }
-
-    const session = await AdminSession.create({
-      email: config.ADMIN_EMAIL,
-      ipAddress: req.ip,
-      userAgent: req.get("user-agent") || "",
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-    });
-    const token = jwt.sign(
-      {
-        admin: true,
-        email: session.email,
-        adminSessionId: session._id,
-      },
-      config.JWT_SECRET,
-      { expiresIn: "1h" },
-    );
-
-    setAdminCookie(res, token);
+    const admin = await createAdminSession(req, res);
     return res.status(200).json({
       message: "Admin signed in successfully",
-      admin: { email: session.email },
+      admin,
     });
   } catch (loginError) {
     return next(loginError);

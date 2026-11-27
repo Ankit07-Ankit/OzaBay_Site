@@ -3,6 +3,11 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import config from "../config/config.js";
 import Session from "../models/session.model.js";
+import {
+  createAdminSession,
+  isAdminLoginConfigured,
+  verifyAdminPassword,
+} from "../services/admin-auth.service.js";
 import sendEmail from "../services/email.service.js";
 import { generateOTP, otpHtmlTemplate } from "../utils/otp.utils.js";
 import OTP from "../models/otp.model.js";
@@ -225,6 +230,17 @@ const login = async (req, res) => {
   const email = req.body.email.trim().toLowerCase();
 
   try {
+    if (isAdminLoginConfigured() && email === config.ADMIN_EMAIL) {
+      if (!(await verifyAdminPassword(password))) {
+        return res.status(400).json({ message: "Invalid email or password" });
+      }
+      const admin = await createAdminSession(req, res);
+      return res.status(200).json({
+        message: "Admin signed in successfully",
+        admin,
+      });
+    }
+
     const user = await userModel.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: "Invalid email or password" });

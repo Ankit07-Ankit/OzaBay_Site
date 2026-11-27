@@ -1289,21 +1289,6 @@ export default function App() {
   };
   const signUp = (data) => finishAuthentication(data);
   const signIn = async (credentials) => {
-    const adminResponse = await fetch(apiUrl("/api/admin/login"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(credentials),
-    });
-    if (adminResponse.ok) {
-      navigate("/admin", { replace: true });
-      return;
-    }
-    if (adminResponse.status !== 401 && adminResponse.status !== 503) {
-      const result = await adminResponse.json().catch(() => ({}));
-      throw new Error(result.message || "Unable to sign in. Please try again.");
-    }
-
     const response = await fetch(apiUrl("/api/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1313,6 +1298,10 @@ export default function App() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok)
       throw new Error(result.message || "Unable to sign in. Please try again.");
+    if (result.admin) {
+      navigate("/admin", { replace: true });
+      return;
+    }
     finishAuthentication({ ...result.user, accessToken: result.accessToken });
   };
   const requestPasswordReset = async (email) => {
