@@ -13,6 +13,7 @@ import VendorProduct from "../models/vendor-product.model.js";
 import sendEmail from "../services/email.service.js";
 
 const checkoutSchema = Joi.object({
+  checkoutAttemptId: Joi.string().guid({ version: "uuidv4" }),
   items: Joi.array()
     .items(
       Joi.object({
@@ -323,6 +324,69 @@ const buildOrderItems = async (requestedItems) => {
   };
 };
 
+const checkoutFingerprint = ({ items, customer, paymentMethod }) => {
+  const lines = items.map(({ productId, quantity }) => [productId, quantity])
+    .sort(([first], [second]) => first.localeCompare(second));
+  const details = ["name", "email", "phone", "address", "city", "pincode"].map((key) => customer[key]);
+  return crypto.createHash("sha256").update(JSON.stringify([lines, details, paymentMethod])).digest("hex");
+};
+
+const respondToCheckout = async (res, order, fingerprint, created = false) => {
+  if (order.checkoutFingerprint !== fingerprint) {
+    return res.status(409).json({ message: "This checkout ID already belongs to a different order." });
+  }
+  if (order.orderStatus === "Cancelled") {
+    return res.status(409).json({ code: "checkout_cancelled", message: "This order was cancelled. Review your bag before placing a new order." });
+  }
+  if (order.paymentMethod !== "Razorpay" || order.paymentStatus === "paid") {
+    return res.status(created ? 201 : 200).json({ order });
+  }
+
+  if (!order.razorpayOrderId) {
+    const claimUntil = new Date(Date.now() + 60_000);
+    const claim = await Order.findOneAndUpdate({
+      _id: order._id,
+      razorpayOrderId: "",
+      orderStatus: "Awaiting payment",
+      $or: [{ gatewayClaimUntil: null }, { gatewayClaimUntil: { $lte: new Date() } }],
+    }, { $set: { gatewayClaimUntil: claimUntil } });
+    if (!claim) {
+      return res.status(409).json({ message: "Payment setup is already in progress. Retry this checkout in a moment." });
+    }
+    const receipt = `oz_${order._id}`;
+    const amount = Math.round(order.total * 100);
+    // If the provider accepted the previous request before a timeout, reuse its order.
+    try {
+      const previous = claim.gatewayClaimUntil
+        ? await razorpayInstance.orders.all({ receipt })
+        : null;
+      const gateway = previous?.items.find((item) => item.receipt === receipt)
+        || await razorpayInstance.orders.create({
+          amount, currency: "INR", receipt,
+          notes: { orderId: String(order._id), customerId: String(order.customerId) },
+        });
+      if (Number(gateway.amount) !== amount || gateway.currency !== "INR") throw new Error("Unexpected gateway amount");
+      order = await Order.findOneAndUpdate(
+        { _id: claim._id, gatewayClaimUntil: claimUntil, orderStatus: "Awaiting payment" },
+        { $set: { razorpayOrderId: gateway.id }, $unset: { gatewayClaimUntil: 1 } },
+        { returnDocument: "after" },
+      );
+      if (!order) return res.status(409).json({ message: "Order changed during payment setup. Check your orders." });
+    } catch (error) {
+      console.error("Unable to initialize Razorpay order:", { orderId: String(claim._id), status: error.statusCode });
+      return res.status(503).json({ message: "Payment setup is temporarily unavailable. Retry the same checkout in one minute." });
+    }
+  }
+
+  return res.status(created ? 201 : 200).json({
+    order,
+    razorpay: {
+      keyId: razorpayKeyId, orderId: order.razorpayOrderId,
+      amount: Math.round(order.total * 100), currency: "INR",
+    },
+  });
+};
+
 const createOrder = async (req, res, next) => {
   try {
     const { error, value } = checkoutSchema.validate(req.body, {
@@ -335,6 +399,11 @@ const createOrder = async (req, res, next) => {
     if (value.paymentMethod === "Razorpay" && !razorpayInstance) {
       return res.status(503).json({ message: "Online payment is not configured." });
     }
+
+    const fingerprint = checkoutFingerprint(value);
+    const attempt = { customerId: req.authUserId, checkoutAttemptId: value.checkoutAttemptId || crypto.randomUUID() };
+    const existing = await Order.findOne(attempt);
+    if (existing) return await respondToCheckout(res, existing, fingerprint);
 
     const customer = await User.findOne({
       _id: req.authUserId,
@@ -353,7 +422,8 @@ const createOrder = async (req, res, next) => {
 
     await updateCustomerDeliveryDetails(req.authUserId, value.customer);
     const order = new Order({
-      customerId: req.authUserId,
+      ...attempt,
+      checkoutFingerprint: fingerprint,
       customer: value.customer,
       items: checkout.items,
       total: checkout.total,
@@ -373,56 +443,16 @@ const createOrder = async (req, res, next) => {
         value.paymentMethod === "Razorpay" ? "Awaiting payment" : "Received",
     });
 
-    if (value.paymentMethod === "Razorpay") {
-      let gatewayOrder;
-      try {
-        gatewayOrder = await razorpayInstance.orders.create({
-          amount: Math.round(checkout.total * 100),
-          currency: "INR",
-          receipt: `oz_${String(order._id).slice(-12)}_${Date.now().toString().slice(-6)}`,
-          notes: {
-            orderId: String(order._id),
-            customerId: String(req.authUserId),
-          },
-        });
-      } catch (gatewayError) {
-        const authenticationFailed =
-          gatewayError.statusCode === 401 ||
-          (gatewayError.error?.code === "BAD_REQUEST_ERROR" &&
-            gatewayError.error?.description === "Authentication failed");
-        console.error("Razorpay order creation failed:", {
-          message: gatewayError.message || gatewayError.error?.description,
-          description: gatewayError.error?.description,
-          code: gatewayError.error?.code,
-          statusCode: gatewayError.statusCode,
-        });
-        order.paymentStatus = "failed";
-        order.paymentDetails.status = "failed";
-        order.orderStatus = "Payment failed";
-        await order.save();
-        const message = authenticationFailed
-          ? "Razorpay authentication failed. Check that the key ID and secret are a matching pair in ozabay-backend/.env, then restart the backend."
-          : gatewayError.error?.description ||
-            "Unable to start online payment. Please try again or choose Cash on delivery.";
-        return res.status(authenticationFailed ? 503 : 502).json({ message });
-      }
-
-      order.razorpayOrderId = gatewayOrder.id;
+    try {
       await order.save();
-      return res.status(201).json({
-        order: order.toObject(),
-        razorpay: {
-          keyId: razorpayKeyId,
-          orderId: gatewayOrder.id,
-          amount: gatewayOrder.amount,
-          currency: gatewayOrder.currency,
-        },
-      });
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+      const winner = await Order.findOne(attempt);
+      if (!winner) throw error;
+      return await respondToCheckout(res, winner, fingerprint);
     }
-
-    await order.save();
-    await sendOrderPlacedEmail(order.toObject());
-    return res.status(201).json({ order: order.toObject() });
+    if (order.paymentMethod === "Cash on delivery") await sendOrderPlacedEmail(order.toObject());
+    return await respondToCheckout(res, order, fingerprint, true);
   } catch (error) {
     return next(error);
   }
@@ -447,44 +477,33 @@ const confirmCapturedPayment = async (order, payment) => {
       : { error: "This order has already been paid.", status: 409 };
   }
 
+  const paidDetails = {
+    provider: "Razorpay", transactionId: payment.id, method: payment.method || "Razorpay",
+    amount: payment.amount / 100, currency: payment.currency, status: "paid",
+    paidAt: Number.isFinite(payment.created_at) ? new Date(payment.created_at * 1000) : new Date(),
+  };
+  const unpaid = { _id: order._id, paymentStatus: { $ne: "paid" } };
+  const paidFields = { paymentStatus: "paid", razorpayPaymentId: payment.id };
+  const options = { returnDocument: "after", runValidators: true };
   const updatedOrder = await Order.findOneAndUpdate(
-    {
-      _id: order._id,
-      paymentStatus: { $ne: "paid" },
-      orderStatus: { $ne: "Cancelled" },
-    },
-    {
-      $set: {
-        paymentStatus: "paid",
-        paymentDetails: {
-          provider: "Razorpay",
-          transactionId: payment.id,
-          method: payment.method || "Razorpay",
-          amount: payment.amount / 100,
-          currency: payment.currency,
-          status: "paid",
-          paidAt: Number.isFinite(payment.created_at)
-            ? new Date(payment.created_at * 1000)
-            : new Date(),
-        },
-        orderStatus: "Received",
-        razorpayPaymentId: payment.id,
-      },
-    },
-    { new: true, runValidators: true },
+    { ...unpaid, orderStatus: { $ne: "Cancelled" } },
+    { $set: { ...paidFields, paymentDetails: paidDetails, orderStatus: "Received" } },
+    options,
   );
   if (!updatedOrder) {
-    const latestOrder = await Order.findById(order._id);
-    if (
-      latestOrder?.paymentStatus === "paid" &&
-      latestOrder.razorpayPaymentId === payment.id
-    ) {
-      return { order: latestOrder };
+    const cancelled = await Order.findOneAndUpdate(
+      { ...unpaid, orderStatus: "Cancelled" },
+      { $set: {
+        ...paidFields,
+        paymentDetails: { ...paidDetails, refundStatus: "pending", refundNote: "Payment captured after cancellation. Manual refund required." },
+      } },
+      options,
+    );
+    const latest = cancelled || await Order.findById(order._id);
+    if (latest?.paymentStatus === "paid" && latest.razorpayPaymentId === payment.id) {
+      return { order: latest };
     }
-    return {
-      error: "This order was cancelled before payment confirmation.",
-      status: 409,
-    };
+    return { error: "Unable to reconcile this captured payment with the order.", status: 409 };
   }
 
   await sendOrderPlacedEmail(updatedOrder.toObject());
@@ -514,6 +533,7 @@ const verifyPayment = async (req, res, next) => {
       return res.status(404).json({ message: "Payment order was not found." });
     }
     if (order.paymentStatus === "paid") {
+      if (order.orderStatus === "Cancelled") return res.status(409).json({ code: "checkout_cancelled", message: "Order cancelled. Check your orders for refund details." });
       if (order.razorpayPaymentId !== value.razorpay_payment_id) {
         return res.status(409).json({ message: "This order has already been paid." });
       }
@@ -541,6 +561,9 @@ const verifyPayment = async (req, res, next) => {
           "Razorpay reports that this payment attempt failed, so the order was not confirmed. If your bank account was debited, check for the reversal before retrying.",
       });
     }
+    if (order.orderStatus === "Cancelled" && payment.status !== "captured") {
+      return res.status(409).json({ code: "checkout_cancelled", message: "This order was cancelled." });
+    }
     if (payment.status === "authorized") {
       payment = await razorpayInstance.payments.capture(
         payment.id,
@@ -554,7 +577,9 @@ const verifyPayment = async (req, res, next) => {
       return res.status(confirmation.status).json({
         message: confirmation.error,
       });
+      return res.status(503).json({ message: "Captured payment needs reconciliation." });
     }
+    if (confirmation.order.orderStatus === "Cancelled") return res.status(409).json({ code: "checkout_cancelled", message: "Order cancelled. Check your orders for refund details." });
     return res.status(200).json({ order: confirmation.order });
   } catch (error) {
     return next(error);
@@ -646,6 +671,7 @@ const handleRazorpayWebhook = async (req, res) => {
         paymentId: payment.id,
         message: confirmation.error,
       });
+      return res.status(503).json({ message: "Captured payment needs reconciliation." });
     }
     return res.status(200).json({ received: true });
   } catch (error) {

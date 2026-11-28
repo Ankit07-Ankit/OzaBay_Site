@@ -4,7 +4,7 @@ import Navbar from "./components/Navbar/Navbar.jsx";
 import Hero from "./components/Hero/Hero.jsx";
 import Reveal from "./components/shared/Reveal.jsx";
 import TiltCard from "./components/shared/TiltCard.jsx";
-import CustomDesignUpload from "./components/custom/CustomDesignUpload.jsx";
+import CustomDesignUpload, { referenceAccept, referenceError, useReferencePreview } from "./components/custom/CustomDesignUpload.jsx";
 import RegionalCrafts from "./components/regional/RegionalCrafts.jsx";
 import TrustStrip from "./components/marketing/TrustStrip.jsx";
 import CraftFilm from "./components/marketing/CraftFilm.jsx";
@@ -14,6 +14,12 @@ import { INDIA_CRAFTS } from "./data/regionalCrafts.js";
 import { REGIONAL_CRAFT_PRODUCTS } from "./data/regionalCraftProducts.js";
 import { ARTISANS, CUSTOM_PRICES } from "./data/siteContent.js";
 import { money } from "./utils/formatCurrency.js";
+import useCheckout from "./hooks/useCheckout.js";
+import { checkoutFor, normalizeAccount, readAccount } from "./utils/customerSession.js";
+import {
+  fetchUserProducts, getCachedSavedProducts, guestSavedProductsStorageKey, mergeSavedProducts,
+  readBaseline, reconcileSavedProducts, rememberServerList, savedProductsStorageKey, syncSavedProductsToServer,
+} from "./utils/savedProducts.js";
 import { apiUrl } from "./utils/api.js";
 import { ADMIN_DASHBOARD_PATH, ADMIN_TOKEN_KEY } from "./utils/routes.js";
 import LazyVideo from "./components/shared/LazyVideo.jsx";
@@ -29,173 +35,23 @@ const AccountSection = lazy(() => import("./components/account/AccountSection.js
 const VendorDashboard = lazy(() => import("./components/vendor/VendorDashboard.jsx"));
 const StateCraftMarketplace = lazy(() => import("./components/regional/StateCraftMarketplace.jsx"));
 
-let refreshAccessTokenPromise;
-
-const serializeProductForSync = (product) =>
-  typeof product === "string"
-    ? product
-    : {
-        id: product?.id,
-        qty: Number.isInteger(product?.qty) ? product.qty : 1,
-        data: product,
-      };
-
-const normalizeRemoteProduct = (entry) => {
-  if (!entry || typeof entry === "string") return null;
-  const item = entry.data ?? entry;
-  if (!item?.id) return null;
-  return { ...item, qty: entry.qty ?? item.qty ?? 1 };
+const emptyBriefCustomer = {
+  name: "",
+  email: "",
+  phone: "",
+  city: "",
+  address: "",
+  quantity: "1",
+  budget: "",
+  neededBy: "",
+  purpose: "",
+  approval: "Yes",
 };
 
-const remoteProductList = (entries) =>
-  (Array.isArray(entries) ? entries : [])
-    .map(normalizeRemoteProduct)
-    .filter(Boolean);
+const regionalIds = new Set(REGIONAL_CRAFT_PRODUCTS.map((product) => String(product.id)));
+const isRegional = (product) => product.regional || regionalIds.has(String(product.id));
 
-const loadRazorpay = () =>
-  new Promise((resolve, reject) => {
-    if (window.Razorpay) {
-      resolve(window.Razorpay);
-      return;
-    }
-
-    const existing = document.querySelector("script[data-razorpay-checkout]");
-    if (existing) {
-      existing.addEventListener("load", () => resolve(window.Razorpay), {
-        once: true,
-      });
-      existing.addEventListener(
-        "error",
-        () =>
-          reject(
-            new Error(
-              "Unable to load Razorpay checkout. Check your connection.",
-            ),
-          ),
-        { once: true },
-      );
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.async = true;
-    script.dataset.razorpayCheckout = "true";
-    script.onload = () => resolve(window.Razorpay);
-    script.onerror = () =>
-      reject(
-        new Error("Unable to load Razorpay checkout. Check your connection."),
-      );
-    document.body.appendChild(script);
-  });
-
-// Local items win on duplicate ids; server-only items are appended.
-const mergeSavedProducts = (local, remote) => {
-  const localIds = new Set(local.map((item) => String(item?.id ?? item)));
-  return [
-    ...local,
-    ...remoteProductList(remote).filter(
-      (item) => !localIds.has(String(item.id)),
-    ),
-  ];
-};
-
-const getSyncAccount = () => {
-  try {
-    return JSON.parse(localStorage.getItem("ozabay-account") || "null");
-  } catch {
-    return null;
-  }
-};
-
-const savedProductsStorageKey = (type, accountId) =>
-  `ozabay-${type === "cart" ? "cart" : "wishlist"}-${accountId}`;
-
-const guestSavedProductsStorageKey = (type) =>
-  `ozabay-guest-${type === "cart" ? "cart" : "wishlist"}`;
-
-const getCachedSavedProducts = (type, accountId = getSyncAccount()?._id) => {
-  try {
-    const storageKey = accountId
-      ? savedProductsStorageKey(type, accountId)
-      : guestSavedProductsStorageKey(type);
-    const products = JSON.parse(localStorage.getItem(storageKey) || "[]");
-    return type === "favorites" && Array.isArray(products)
-      ? products.map((id) => String(id))
-      : products;
-  } catch {
-    return [];
-  }
-};
-
-// Pushes the current local cart/wishlist snapshots to the server so the
-// account has them on any device. Runs fire-and-forget with a simple
-// in-flight guard to avoid overlapping requests. `types` limits which
-// lists are pushed.
-let savedProductsSyncInFlight = false;
-let savedProductsSyncPending = false;
-const syncSavedProductsToServer = async (
-  requestAuthenticatedApi,
-  types = ["cart", "favorites"],
-) => {
-  const account = getSyncAccount();
-  if (!account?._id) return;
-  if (savedProductsSyncInFlight) {
-    savedProductsSyncPending = true;
-    return;
-  }
-
-  savedProductsSyncInFlight = true;
-  try {
-    const send = async (type, products) => {
-      await requestAuthenticatedApi("/me/products", {
-        method: "POST",
-        body: JSON.stringify({
-          type,
-          products: products.map(serializeProductForSync),
-        }),
-      });
-    };
-    await Promise.all(
-      types.map((type) =>
-        send(
-          type,
-          JSON.parse(
-            localStorage.getItem(savedProductsStorageKey(type, account._id)) ||
-              "[]",
-          ),
-        ),
-      ),
-    );
-  } catch (error) {
-    console.warn("Failed to sync saved products:", error.message);
-  } finally {
-    savedProductsSyncInFlight = false;
-    if (savedProductsSyncPending) {
-      savedProductsSyncPending = false;
-      void syncSavedProductsToServer(requestAuthenticatedApi);
-    }
-  }
-};
-
-// Loads the server-side snapshot for a type. Returns `{ ids, products }`
-// (ids are plain product-id strings, products are the full stored objects),
-// or null when there is no signed-in account or the request fails.
-const fetchUserProducts = async (type, requestAuthenticatedApi) => {
-  const account = getSyncAccount();
-  if (!account?._id) return null;
-
-  try {
-    const result = await requestAuthenticatedApi(`/me/products?type=${type}`);
-    return {
-      ids: Array.isArray(result.ids) ? result.ids : [],
-      products: remoteProductList(result.products),
-    };
-  } catch (error) {
-    console.warn(`Failed to load saved ${type}:`, error.message);
-    return null;
-  }
-};
+const tokenRefreshes = new Map();
 
 const normalizeSearchText = (value) =>
   String(value ?? "")
@@ -477,6 +333,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [priceBand, setPriceBand] = useState(null);
   const [modal, setModal] = useState(null);
+  const [movedRegionalItems, setMovedRegionalItems] = useState(false);
   const [leaving, setLeaving] = useState([]);
   const [page, setPage] = useState(1);
   const [custom, setCustom] = useState({
@@ -488,29 +345,25 @@ export default function App() {
     engraving: "",
     notes: "",
   });
-  const [orderForm, setOrderForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    city: "",
-    address: "",
-    quantity: "1",
-    budget: "",
-    neededBy: "",
-    purpose: "",
-    referenceName: "",
-    approval: "Yes",
-  });
+  const [orderForm, setOrderForm] = useState(emptyBriefCustomer);
+  const [referenceFile, setReferenceFile] = useState(null);
+  const referencePreview = useReferencePreview(referenceFile);
+  const [briefError, setBriefError] = useState("");
+  const [briefBusy, setBriefBusy] = useState(false);
   const [orderSent, setOrderSent] = useState(false);
   const [requestId, setRequestId] = useState("");
   const [customStep, setCustomStep] = useState(1);
-  const [account, setAccount] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("ozabay-account") || "null");
-    } catch {
-      return null;
-    }
-  });
+  const [account, setAccount] = useState(readAccount);
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key === "ozabay-account" && readAccount()?.id !== account?.id) {
+        sessionStorage.removeItem("ozabay-access-token");
+        window.location.reload();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [account?.id]);
   const [vendorSessionReady, setVendorSessionReady] = useState(
     () => account?.accountType !== "vendor",
   );
@@ -530,24 +383,13 @@ export default function App() {
   const [authView, setAuthView] = useState("signup");
   const [signupAccountType, setSignupAccountType] = useState("user");
   const syncedAccountRef = useRef(null);
+  const [cartOwner, setCartOwner] = useState(undefined);
   const savedProductsLoadedRef = useRef(false);
-  const [checkout, setCheckout] = useState({
-    name: "",
-    phone: "",
-    email: "",
-    address: "",
-    city: "",
-    pincode: "",
-    payment: "Cash on delivery",
-  });
-  const [placedOrder, setPlacedOrder] = useState(null);
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
-  const [checkoutError, setCheckoutError] = useState("");
   const pendingCheckoutAuth = useRef(false);
   const [orders, setOrders] = useState(() => {
     try {
-      const key = account?._id
-        ? `ozabay-orders-${account._id}`
+      const key = account?.id
+        ? `ozabay-orders-${account.id}`
         : "ozabay-guest-orders";
       return JSON.parse(localStorage.getItem(key) || "[]");
     } catch {
@@ -783,7 +625,8 @@ export default function App() {
     setPage(1);
   }, [filter, query, sort, priceBand]);
   useEffect(() => {
-    if (!account?._id) {
+    if (cartOwner !== (account?.id || null)) return;
+    if (!account?.id) {
       if (syncedAccountRef.current !== null) return;
       localStorage.removeItem("ozabay-cart");
       localStorage.removeItem("ozabay-wishlist");
@@ -793,18 +636,15 @@ export default function App() {
       );
       return;
     }
-    if (
-      !savedProductsLoadedRef.current ||
-      syncedAccountRef.current !== account._id
-    )
-      return;
+    if (syncedAccountRef.current !== account.id) return;
     localStorage.setItem(
-      savedProductsStorageKey("cart", account._id),
+      savedProductsStorageKey("cart", account.id),
       JSON.stringify(cart),
     );
-  }, [account?._id, cart]);
+  }, [account?.id, cartOwner, cart]);
   useEffect(() => {
-    if (!account?._id) {
+    if (cartOwner !== (account?.id || null)) return;
+    if (!account?.id) {
       if (syncedAccountRef.current !== null) return;
       localStorage.setItem(
         guestSavedProductsStorageKey("favorites"),
@@ -812,18 +652,22 @@ export default function App() {
       );
       return;
     }
-    if (
-      !savedProductsLoadedRef.current ||
-      syncedAccountRef.current !== account._id
-    )
-      return;
+    if (syncedAccountRef.current !== account.id) return;
     localStorage.setItem(
-      savedProductsStorageKey("favorites", account._id),
+      savedProductsStorageKey("favorites", account.id),
       JSON.stringify(wish),
     );
-  }, [account?._id, wish]);
+  }, [account?.id, cartOwner, wish]);
   useEffect(() => {
-    const accountId = account?._id;
+    if (account?.accountType === "vendor") {
+      savedProductsLoadedRef.current = false;
+      setCartOwner(undefined);
+      setCart([]);
+      setWish([]);
+      return;
+    }
+    const accountId = account?.id;
+    setCartOwner(accountId || null);
     if (!accountId) {
       syncedAccountRef.current = null;
       savedProductsLoadedRef.current = false;
@@ -831,15 +675,21 @@ export default function App() {
       setWish(getCachedSavedProducts("favorites", null));
       return;
     }
-    if (syncedAccountRef.current === accountId) return;
+
     syncedAccountRef.current = accountId;
     savedProductsLoadedRef.current = false;
-    const cachedCart = getCachedSavedProducts("cart");
-    const cachedWish = getCachedSavedProducts("favorites");
+    const cachedCart = getCachedSavedProducts("cart", accountId);
+    const cachedWish = getCachedSavedProducts("favorites", accountId);
     const guestCart = getCachedSavedProducts("cart", null);
     const guestWish = getCachedSavedProducts("favorites", null);
-    setCart(mergeSavedProducts(cachedCart, guestCart));
-    setWish([...new Set([...cachedWish, ...guestWish])]);
+    const mergedCart = mergeSavedProducts(cachedCart, guestCart);
+    const mergedWish = [...new Set([...cachedWish, ...guestWish])];
+    localStorage.setItem(savedProductsStorageKey("cart", accountId), JSON.stringify(mergedCart));
+    localStorage.setItem(savedProductsStorageKey("favorites", accountId), JSON.stringify(mergedWish));
+    localStorage.removeItem(guestSavedProductsStorageKey("cart"));
+    localStorage.removeItem(guestSavedProductsStorageKey("favorites"));
+    setCart(mergedCart);
+    setWish(mergedWish);
     let cancelled = false;
     Promise.all([
       fetchUserProducts("cart", requestAuthenticatedApi),
@@ -848,25 +698,25 @@ export default function App() {
       if (cancelled) return;
       if (!serverCart || !serverWish) return;
       savedProductsLoadedRef.current = true;
-      setCart((current) => mergeSavedProducts(current, serverCart.products));
-      setWish((current) => [
-        ...current,
-        ...serverWish.ids
-          .map(String)
-          .filter((id) => !current.some((savedId) => String(savedId) === id)),
-      ]);
+      const cartBaseline = readBaseline("cart", accountId);
+      const wishBaseline = readBaseline("favorites", accountId);
+      const serverFavorites = serverWish.ids.map(String);
+      rememberServerList("cart", accountId, serverCart.products);
+      rememberServerList("favorites", accountId, serverFavorites);
+      setCart((current) => reconcileSavedProducts(current, serverCart.products, cartBaseline));
+      setWish((current) => reconcileSavedProducts(current, serverFavorites, wishBaseline));
     });
     return () => {
       cancelled = true;
     };
-  }, [account?._id]);
+  }, [account?.id, account?.accountType]);
   useEffect(() => {
-    if (!account?._id || !savedProductsLoadedRef.current) return;
+    if (!account?.id || account.id !== cartOwner || !savedProductsLoadedRef.current) return;
     const timer = setTimeout(() => {
-      syncSavedProductsToServer(requestAuthenticatedApi);
+      syncSavedProductsToServer(requestAuthenticatedApi, account.id, cart, wish);
     }, 500);
     return () => clearTimeout(timer);
-  }, [cart, wish]);
+  }, [cart, wish, cartOwner, account?.id]);
   useEffect(() => {
     if (vendorRoute) return;
     let cancelled = false;
@@ -932,7 +782,7 @@ export default function App() {
           activeVendorProductIds.has(String(productId)),
       ),
     );
-  }, [registeredProducts, registeredProductsLoaded, account?._id]);
+  }, [registeredProducts, registeredProductsLoaded, account?.id]);
   useEffect(() => {
     let cancelled = false;
     if (!catalogProducts.length) {
@@ -1001,6 +851,21 @@ export default function App() {
       if (frame) window.cancelAnimationFrame(frame);
     };
   }, []);
+  useEffect(() => {
+    if ((account?.id || null) !== cartOwner) return;
+    const regional = cart.filter(isRegional);
+    if (!regional.length) return;
+    setWish((current) => [...new Set([...current, ...regional.map((product) => String(product.id))])]);
+    setCart((current) => current.filter((product) => !isRegional(product)));
+    setMovedRegionalItems(true);
+  }, [cart, account?.id, cartOwner]);
+
+  const browseRelatedListings = (product) => {
+    setModal(null);
+    const category = categories.find((value) => value.toLowerCase() === product.category.toLowerCase());
+    openCollection(category || "All");
+  };
+
   const addToCartDirect = (p) =>
     setCart((c) =>
       c.some((x) => x.id === p.id)
@@ -1008,6 +873,10 @@ export default function App() {
         : [...c, { ...p, qty: 1 }],
     );
   const add = (p) => {
+    if (isRegional(p)) {
+      browseRelatedListings(p);
+      return false;
+    }
     addToCartDirect(p);
     return true;
   };
@@ -1039,238 +908,32 @@ export default function App() {
   const toggleWish = (p) => {
     toggleWishDirect(p);
   };
-  const addCustom = () => {
-    const p = {
-      id: `custom-${Date.now()}`,
-      name: `Custom ${custom.form}`,
-      category: "Made to order",
-      priceValue: customPrice,
-      price: money(customPrice),
-      image: customImage,
-      artisan: "OzaBay Custom Studio",
-      city: "India",
-      material: custom.material,
-      custom: { ...custom },
-    };
-    if (add(p)) setModal("cart");
-  };
-  const submitCustom = (e) => {
-    e.preventDefault();
-    const id = `OZ-C${Date.now().toString().slice(-7)}`;
-    const payload = {
-      requestId: id,
-      createdAt: new Date().toISOString(),
-      customer: orderForm,
-      design: custom,
-      price: customPrice,
-    };
-    localStorage.setItem("ozabay-last-custom-request", JSON.stringify(payload));
-    setRequestId(id);
-    setOrderSent(true);
-    setCustomStep(1);
-  };
-  const completeOrder = (savedOrder) => {
-    const order = {
-      id: savedOrder._id,
-      createdAt: savedOrder.createdAt,
-      updatedAt: savedOrder.updatedAt,
-      items: savedOrder.items.map((item) => ({
-        name: item.name,
-        productId: item.productId,
-        qty: item.quantity,
-        priceValue: item.unitPrice,
-        fulfillmentStatus: item.fulfillmentStatus,
-        deliveredAt: item.deliveredAt,
-        cashOnDelivery: item.cashOnDelivery,
-        cancellationRequest: item.cancellationRequest,
-        returnRequest: item.returnRequest,
-      })),
-      total: savedOrder.total,
-      customer: savedOrder.customer,
-      status: savedOrder.orderStatus,
-      paymentMethod: savedOrder.paymentMethod,
-      paymentStatus: savedOrder.paymentStatus,
-      paymentDetails: savedOrder.paymentDetails,
-      cancelledAt: savedOrder.cancelledAt,
-    };
-    setOrders((current) => [
-      order,
-      ...current.filter((item) => item.id !== order.id),
-    ]);
-    setPlacedOrder(order);
-    setCart([]);
-    setCheckoutError("");
-    setModal("order-success");
-  };
-  const placeOrder = async (e) => {
-    e.preventDefault();
-    if (!cart.length) return;
-    if (account?.accountType !== "user") {
-      pendingCheckoutAuth.current = true;
-      setAuthView("signin");
-      setModal("account");
-      return;
-    }
-    if (
-      cart.some((item) => !/^vendor-[a-fA-F0-9]{24}$/.test(String(item.id)))
-    ) {
-      setCheckoutError(
-        "Custom-made items need a separate quote and can't be included in this checkout. Remove them from your cart to continue.",
-      );
-      return;
-    }
-
-    setCheckoutBusy(true);
-    setCheckoutError("");
+  const submitCustom = async (event) => {
+    event.preventDefault();
+    if (briefBusy) return;
+    setBriefBusy(true);
+    setBriefError("");
     try {
-      const { payment, ...customer } = checkout;
-      const { order, razorpay } = await requestAuthenticatedApi("/orders", {
-        method: "POST",
-        body: JSON.stringify({
-          items: cart.map((item) => ({
-            productId: item.id,
-            quantity: item.qty,
-          })),
-          customer,
-          paymentMethod: payment,
-        }),
-      });
-
-      if (payment === "Cash on delivery") {
-        completeOrder(order);
-        return;
-      }
-
-      await loadRazorpay();
-      if (!window.Razorpay) {
-        throw new Error("Razorpay checkout is unavailable in this browser.");
-      }
-      if (!razorpay?.keyId || !razorpay?.orderId) {
-        throw new Error(
-          "Online payment could not be initialized. Please try again.",
-        );
-      }
-
-      const paymentWindow = new window.Razorpay({
-        key: razorpay.keyId,
-        amount: razorpay.amount,
-        currency: razorpay.currency || "INR",
-        name: "OzaBay",
-        description: "Handcrafted marketplace order",
-        order_id: razorpay.orderId,
-        prefill: {
-          name: checkout.name,
-          email: checkout.email,
-          contact: checkout.phone,
-        },
-        theme: { color: "#17365f" },
-        config: {
-          display: {
-            blocks: {
-              online: {
-                name: "Pay using UPI, cards, wallets or netbanking",
-                instruments: [
-                  { method: "upi" },
-                  { method: "card" },
-                  { method: "wallet" },
-                  { method: "netbanking" },
-                ],
-              },
-            },
-            sequence: ["block.online"],
-            hide: [{ method: "upi", flows: ["collect"] }],
-            preferences: { show_default_blocks: false },
-          },
-        },
-        handler: async (paymentResult) => {
-          let verificationError;
-          const verificationOptions = {
-            method: "POST",
-            body: JSON.stringify({
-              orderId: order._id,
-              ...paymentResult,
-            }),
-          };
-          for (let attempt = 0; attempt < 4; attempt += 1) {
-            if (attempt > 0) {
-              await new Promise((resolve) =>
-                window.setTimeout(resolve, attempt * 750),
-              );
-            }
-            try {
-              const verified = await requestAuthenticatedApi(
-                "/orders/verify-payment",
-                verificationOptions,
-              );
-              completeOrder(verified.order);
-              setCheckoutBusy(false);
-              return;
-            } catch (error) {
-              verificationError = error;
-              const paymentMayStillSettle =
-                error.message === "The payment has not been captured for this order.";
-              const retryableResponse =
-                !Number.isInteger(error.status) ||
-                error.status >= 500 ||
-                error.status === 408 ||
-                error.status === 429;
-              if (!paymentMayStillSettle && !retryableResponse) break;
-            }
-          }
-
-          for (let attempt = 0; attempt < 3; attempt += 1) {
-            await new Promise((resolve) =>
-              window.setTimeout(resolve, (attempt + 1) * 1000),
-            );
-            try {
-              const { orders: latestOrders } = await requestAuthenticatedApi(
-                "/orders/mine",
-                { cache: "no-store" },
-              );
-              const paidOrder = latestOrders?.find(
-                (latestOrder) =>
-                  latestOrder._id === order._id &&
-                  latestOrder.paymentStatus === "paid",
-              );
-              if (paidOrder) {
-                completeOrder(paidOrder);
-                setCheckoutBusy(false);
-                return;
-              }
-            } catch (refreshError) {
-              console.error(
-                "Unable to refresh order after payment verification failed:",
-                refreshError,
-              );
-            }
-          }
-          setCheckoutError(
-            `Razorpay has not confirmed this payment yet, so the order is not confirmed. Do not retry until the payment status is resolved. Check your Orders page; contact support with order ${order._id} if it remains unpaid. ${verificationError?.message || "Payment verification could not be completed."}`,
-          );
-          setCheckoutBusy(false);
-        },
-        modal: {
-          ondismiss: () => setCheckoutBusy(false),
-          escape: true,
-          confirm_close: true,
-        },
-      });
-      paymentWindow.on("payment.failed", (response) => {
-        console.error("Razorpay payment failed:", response?.error);
-        setCheckoutError(
-          `Razorpay could not complete this payment${response?.error?.description ? `: ${response.error.description}` : ""}. Your order is not confirmed. If your bank account was debited, check for a reversal before retrying.`,
-        );
-        setCheckoutBusy(false);
-      });
-      paymentWindow.open();
+      const body = new FormData();
+      body.append("brief", JSON.stringify({ customer: orderForm, design: custom }));
+      if (referenceFile) body.append("reference", referenceFile);
+      const response = await fetch(apiUrl("/api/studio-briefs"), { method: "POST", body });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.requestId) throw new Error(result.message || "Unable to submit your design brief. Please try again.");
+      setRequestId(result.requestId);
+      setOrderSent(true);
+      setOrderForm(emptyBriefCustomer);
+      setReferenceFile(null);
     } catch (error) {
-      setCheckoutError(error.message);
-      setCheckoutBusy(false);
+      setBriefError(error.message);
+    } finally {
+      setBriefBusy(false);
     }
   };
   const finishAuthentication = (data) => {
     if (!data) return;
-    const { accessToken: token, ...user } = data;
+    const { accessToken: token, ...details } = data;
+    const user = normalizeAccount(details);
     localStorage.setItem("ozabay-account", JSON.stringify(user));
     if (token) {
       sessionStorage.setItem("ozabay-access-token", token);
@@ -1290,9 +953,7 @@ export default function App() {
     const isVendor = user.accountType === "vendor";
     setVendorRoute(isVendor);
     navigate(isVendor ? "/vendor" : "/", { replace: true });
-    if (isVendor) {
-      void fetchVendorProducts();
-    }
+
   };
   const signUp = (data) => finishAuthentication(data);
   const signIn = async (credentials) => {
@@ -1342,13 +1003,15 @@ export default function App() {
     return result;
   };
   const refreshAccessToken = () => {
-    if (!refreshAccessTokenPromise) {
-      refreshAccessTokenPromise = (async () => {
+    const owner = account?.id;
+    if (!tokenRefreshes.has(owner)) {
+      const pending = (async () => {
         const response = await fetch(apiUrl("/api/auth/refresh-token"), {
           method: "GET",
           credentials: "include",
         });
         const result = await response.json().catch(() => ({}));
+        if (readAccount()?.id !== owner) throw new Error("Your account changed. Please try again.");
         if (!response.ok) {
           if (response.status === 401) {
             sessionStorage.removeItem("ozabay-access-token");
@@ -1371,10 +1034,11 @@ export default function App() {
         setAccessToken(result.accessToken);
         return result.accessToken;
       })().finally(() => {
-        refreshAccessTokenPromise = null;
+        tokenRefreshes.delete(owner);
       });
+      tokenRefreshes.set(owner, pending);
     }
-    return refreshAccessTokenPromise;
+    return tokenRefreshes.get(owner);
   };
   const fetchVendorProducts = async () => {
     setVendorProductsLoaded(false);
@@ -1396,7 +1060,7 @@ export default function App() {
     }
     setVendorProducts([]);
     setVendorProductsLoaded(false);
-  }, [account?._id, account?.accountType]);
+  }, [account?.id, account?.accountType]);
 
   useEffect(() => {
     if (account?.accountType !== "user") {
@@ -1465,25 +1129,13 @@ export default function App() {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [account?._id, account?.accountType]);
+  }, [account?.id, account?.accountType]);
 
   useEffect(() => {
-    if (account?.accountType !== "user") return;
-    const savedLocation = account.deliveryLocation || {};
-    setCheckout((current) => ({
-      ...current,
-      name: current.name || savedLocation.fullName || account.name || "",
-      email: current.email || account.email || "",
-      phone: current.phone || savedLocation.mobile || "",
-      address:
-        current.address ||
-        [savedLocation.building, savedLocation.area, savedLocation.address]
-          .filter(Boolean)
-          .join(", "),
-      city: current.city || savedLocation.city || "",
-      pincode: current.pincode || savedLocation.pincode || "",
-    }));
-  }, [account?._id, account?.accountType]);
+    setMovedRegionalItems(false);
+    setOrderForm(emptyBriefCustomer);
+    setReferenceFile(null);
+  }, [account?.id, account?.accountType]);
 
   const requestVendorApi = async (path, options = {}) => {
     let token = accessToken || sessionStorage.getItem("ozabay-access-token");
@@ -1494,8 +1146,9 @@ export default function App() {
         headers: { ...options.headers, Authorization: `Bearer ${authToken}` },
       });
     let response = await send(token);
-    if (response.status === 401) {
+    if (response.status === 401 && readAccount()?.id === account?.id) {
       token = await refreshAccessToken();
+      if (readAccount()?.id !== account?.id) throw new Error("Your account changed. Please try again.");
       response = await send(token);
     }
     const result = await response.json().catch(() => ({}));
@@ -1519,8 +1172,9 @@ export default function App() {
         credentials: "include",
       });
     let response = await send(token);
-    if (response.status === 401) {
+    if (response.status === 401 && readAccount()?.id === account?.id) {
       token = await refreshAccessToken();
+      if (readAccount()?.id !== account?.id) throw new Error("Your account changed. Please try again.");
       response = await send(token);
     }
     const result = await response.json().catch(() => ({}));
@@ -1529,10 +1183,25 @@ export default function App() {
         result.message || "Unable to complete this request.",
       );
       error.status = response.status;
+      error.code = result.code;
       throw error;
     }
     return result;
   };
+  const { checkout, setCheckout, placedOrder, checkoutBusy, checkoutError, placeOrder } = useCheckout({
+    account, cart, requestAuthenticatedApi,
+    onSignIn() {
+      pendingCheckoutAuth.current = true;
+      setAuthView("signin");
+      setModal("account");
+    },
+    onComplete(order) {
+      setOrders((current) => [order, ...current.filter((item) => item.id !== order.id)]);
+      setCart([]);
+      setModal("order-success");
+    },
+  });
+
   const geocodeDeliveryLocation = (coordinates) =>
     requestAuthenticatedApi("/geocode", {
       method: "POST",
@@ -1556,10 +1225,11 @@ export default function App() {
         const verifiedAccount = {
           ...account,
           ...user,
-          _id: user.id || account._id,
+          id: user.id,
         };
+        if (!active) return;
         localStorage.setItem("ozabay-account", JSON.stringify(verifiedAccount));
-        if (active) setAccount(verifiedAccount);
+        setAccount(verifiedAccount);
       })
       .catch((error) => {
         if (!active) return;
@@ -1747,8 +1417,9 @@ export default function App() {
         body: JSON.stringify(changes),
       });
     let response = await send(token);
-    if (response.status === 401) {
+    if (response.status === 401 && readAccount()?.id === account?.id) {
       token = await refreshAccessToken();
+      if (readAccount()?.id !== account?.id) throw new Error("Your account changed. Please try again.");
       response = await send(token);
     }
     const result = await response.json().catch(() => ({}));
@@ -1768,22 +1439,12 @@ export default function App() {
       deliveryLocations,
       activeLocationIndex,
     });
-    const deliveryLocation = updatedAccount.deliveryLocation;
-    setCheckout((current) => ({
-      ...current,
-      name: deliveryLocation?.fullName || updatedAccount.name || current.name,
-      email: updatedAccount.email || current.email,
-      phone: deliveryLocation?.mobile || current.phone,
-      address: deliveryLocation
-        ? [deliveryLocation.building, deliveryLocation.area]
-            .filter(Boolean)
-            .join(", ")
-        : "",
-      city: deliveryLocation?.city || current.city,
-      pincode: deliveryLocation?.pincode || current.pincode,
-    }));
+    setCheckout((current) => ({ ...checkoutFor(updatedAccount), payment: current.payment }));
   };
   const logout = async () => {
+    if (account?.accountType === "user" && cartOwner === account.id && savedProductsLoadedRef.current) {
+      await syncSavedProductsToServer(requestAuthenticatedApi, account.id, cart, wish);
+    }
     const response = await fetch(apiUrl("/api/auth/logout"), {
       method: "GET",
       credentials: "include",
@@ -2034,9 +1695,7 @@ export default function App() {
                   )}
                   onBack={backToAtlas}
                   onProduct={(p) => setModal({ type: "product", product: p })}
-                  onAdd={(p) => {
-                    if (add(p)) setModal("cart");
-                  }}
+                  onBrowse={browseRelatedListings}
                   onToggleWish={toggleWish}
                   wish={wish}
                 />
@@ -2618,7 +2277,10 @@ export default function App() {
                   </div>
                   <div className="create-upload-pane">
                     <CustomDesignUpload
-                      onConfirm={() => {
+                      onConfirm={(file, notes) => {
+                        setReferenceFile(file);
+                        setCustom((current) => ({ ...current, notes }));
+                        setBriefError("");
                         setOrderSent(false);
                         setCustomStep(1);
                         setModal("custom-order");
@@ -2962,7 +2624,16 @@ export default function App() {
                 />
               </Suspense>
             )}
-            {modal?.type === "product" && (
+            {modal?.type === "product" && isRegional(modal.product) && (
+              <>
+                <button className="modal-close" aria-label="Close craft details" onClick={() => setModal(null)}>×</button>
+                <p className="eyebrow">{modal.product.state} craft edit</p>
+                <h2>{modal.product.craft}</h2>
+                <p>{modal.product.description}</p>
+                <button className="hero-action" onClick={() => browseRelatedListings(modal.product)}>Browse maker listings</button>
+              </>
+            )}
+            {modal?.type === "product" && !isRegional(modal.product) && (
               <Suspense fallback={<div className="catalog-loading">Loading product details…</div>}>
                 <ProductDetail
                   key={modal.product.id || modal.product.name}
@@ -3289,7 +2960,7 @@ export default function App() {
                     <button
                       className="hero-action"
                       onClick={() => {
-                        modal.items.forEach(addToCartDirect);
+                        modal.items.filter((product) => !isRegional(product)).forEach(addToCartDirect);
                         setModal("cart");
                       }}
                     >
@@ -3500,24 +3171,24 @@ export default function App() {
                           <div className="wishlist-item__info">
                             <strong>{p.name}</strong>
                             <span>
-                              {p.category} · {money(p.priceValue)}
+                              {p.regional ? p.category + " craft edit" : p.category + " · " + money(p.priceValue)}
                             </span>
                           </div>
                           <div className="wishlist-item__actions">
-                            <button
+                            {!p.regional && <button
                               className="buy-now"
                               onClick={() => {
                                 if (add(p)) setModal("checkout");
                               }}
                             >
                               Buy now
-                            </button>
+                            </button>}
                             <button
                               onClick={() => {
                                 if (add(p)) setModal("cart");
                               }}
                             >
-                              Add to bag
+                              {p.regional ? "Browse maker listings" : "Add to bag"}
                             </button>
                             <button
                               className="wishlist-item__remove"
@@ -3538,6 +3209,7 @@ export default function App() {
             )}
             {modal === "cart" && (
               <>
+                {movedRegionalItems && <p role="status">Your regional craft edits are saved in Favorites. Your bag contains items available to order.</p>}
                 <button className="modal-close" onClick={() => setModal(null)}>
                   ×
                 </button>
@@ -4028,31 +3700,18 @@ export default function App() {
                       <div className="custom-design-card">
                         <div
                           className="custom-design-card__image"
-                          style={{ backgroundImage: `url(${customImage})` }}
+                          style={{ backgroundImage: `url(${referencePreview || customImage})` }}
                         >
                           <span>YOUR DESIGN</span>
                         </div>
                         <div className="custom-design-card__body">
-                          <div>
-                            <span>Form</span>
-                            <strong>{custom.form}</strong>
-                          </div>
-                          <div>
-                            <span>Material</span>
-                            <strong>{custom.material}</strong>
-                          </div>
-                          <div>
-                            <span>Finish</span>
-                            <strong>{custom.finish}</strong>
-                          </div>
-                          <div>
-                            <span>Size</span>
-                            <strong>{custom.size}</strong>
-                          </div>
-                          <div>
-                            <span>Tone</span>
-                            <strong>{custom.tone}</strong>
-                          </div>
+                          {Object.entries(customOptions).map(([field, options]) => (
+                            <label key={field}>{field.charAt(0).toUpperCase() + field.slice(1)}
+                              <select value={custom[field]} onChange={(event) => setCustom((current) => ({ ...current, [field]: event.target.value }))}>
+                                {options.map((option) => <option key={option}>{option}</option>)}
+                              </select>
+                            </label>
+                          ))}
                           {custom.engraving && (
                             <div>
                               <span>Engraving</span>
@@ -4254,25 +3913,25 @@ export default function App() {
                           <span>REFERENCE IMAGE</span>
                           <strong>Optional — show us your inspiration</strong>
                           <small>
-                            For now this frontend stores the selected file name
-                            with the request.
+                            Attach a JPG, PNG or WebP up to 3 MB.
                           </small>
                         </div>
                         <label className="upload-btn">
                           Choose image
                           <input
                             type="file"
-                            accept="image/*"
-                            onChange={(e) =>
-                              setOrderForm((v) => ({
-                                ...v,
-                                referenceName: e.target.files?.[0]?.name || "",
-                              }))
-                            }
+                            accept={referenceAccept}
+                            onChange={(event) => {
+                              const file = event.target.files[0];
+                              if (!file) return;
+                              const message = referenceError(file);
+                              setBriefError(message);
+                              if (!message) setReferenceFile(file);
+                            }}
                           />
                         </label>
-                        {orderForm.referenceName && (
-                          <em>{orderForm.referenceName}</em>
+                        {referenceFile && (
+                          <em>{referenceFile.name}</em>
                         )}
                       </div>
                       <label className="approval-row">
@@ -4293,6 +3952,7 @@ export default function App() {
                           before production.
                         </span>
                       </label>
+                      {briefError && <p role="alert">{briefError}</p>}
                       <div className="custom-request-submit">
                         <button
                           type="button"
@@ -4301,8 +3961,8 @@ export default function App() {
                         >
                           ← Back to design
                         </button>
-                        <button className="hero-action">
-                          Send my custom request ↗
+                        <button className="hero-action" disabled={briefBusy}>
+                          {briefBusy ? "Sending brief…" : "Send my custom request"}
                         </button>
                       </div>
                     </form>
@@ -4320,8 +3980,7 @@ export default function App() {
                   Your design is <em>saved.</em>
                 </h2>
                 <p>
-                  Request ID: <strong>{requestId}</strong>. This browser has
-                  stored the design reference.
+                  Request ID: <strong>{requestId}</strong>. The studio team can now review your brief and contact you about pricing and timing.
                 </p>
                 <div className="custom-order-success">
                   <span>Design</span>

@@ -109,7 +109,7 @@ export default function VendorDashboard({ account, request }) {
   /* ── Locations Management State ── */
   const [locations, setLocations] = useState(() => {
     try {
-      const cached = localStorage.getItem(`ozabay-vendor-locs-${account?._id || "default"}`);
+      const cached = localStorage.getItem(`ozabay-vendor-locs-${account?.id || "default"}`);
       if (cached) return JSON.parse(cached);
       return account?.shopLocations || [];
     } catch {
@@ -402,7 +402,7 @@ export default function VendorDashboard({ account, request }) {
       if (Array.isArray(result.locations)) {
         setLocations(result.locations);
         localStorage.setItem(
-          `ozabay-vendor-locs-${account?._id || "default"}`,
+          `ozabay-vendor-locs-${account?.id || "default"}`,
           JSON.stringify(result.locations),
         );
       }
@@ -455,7 +455,7 @@ export default function VendorDashboard({ account, request }) {
       supportSectionVisibleRef.current = false;
       observer.disconnect();
     };
-  }, [request, account?._id]);
+  }, [request, account?.id]);
 
   useEffect(() => () => {
     previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
@@ -794,7 +794,7 @@ export default function VendorDashboard({ account, request }) {
 
       setLocations(updatedList);
       localStorage.setItem(
-        `ozabay-vendor-locs-${account?._id || "default"}`,
+        `ozabay-vendor-locs-${account?.id || "default"}`,
         JSON.stringify(updatedList),
       );
       setLocationForm(emptyLocation);
@@ -815,7 +815,7 @@ export default function VendorDashboard({ account, request }) {
       const nextList = locations.filter((l) => (l._id || l.id) !== locId);
       setLocations(nextList);
       localStorage.setItem(
-        `ozabay-vendor-locs-${account?._id || "default"}`,
+        `ozabay-vendor-locs-${account?.id || "default"}`,
         JSON.stringify(nextList),
       );
       setLocationNotice(`Location "${loc.name}" removed.`);

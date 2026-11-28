@@ -13,6 +13,8 @@ import supportRouter from "./routes/support.routes.js";
 import cookieParser from "cookie-parser";
 import { getVendorProductUploadDirectory } from "./middleware/vendor-product-upload.js";
 
+import { createStudioBrief, receiveStudioBrief } from "./controllers/studio-brief.controller.js";
+
 const app = express();
 const frontendOrigins = [
   "https://ozabay.com",
@@ -53,6 +55,7 @@ app.use(
   }),
 );
 
+app.post("/api/studio-briefs", receiveStudioBrief, createStudioBrief);
 app.use("/api/auth", authRouter);
 app.use("/api/orders", orderRouter);
 app.use("/api/products", productRouter);

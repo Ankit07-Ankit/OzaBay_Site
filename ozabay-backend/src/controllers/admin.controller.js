@@ -2,6 +2,7 @@ import Joi from "joi";
 import mongoose from "mongoose";
 import config from "../config/config.js";
 import AdminSession from "../models/admin-session.model.js";
+import StudioBrief from "../models/studio-brief.model.js";
 import Order from "../models/order.model.js";
 import OTP from "../models/otp.model.js";
 import Session from "../models/session.model.js";
@@ -197,6 +198,23 @@ const listProducts = async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
+};
+
+export const listStudioBriefs = async (req, res) => {
+  const { error, value } = getPagination(req.query);
+  if (error) return res.status(400).json({ message: error.details[0].message });
+  const filter = {};
+  if (value.search) {
+    const match = new RegExp(escapeRegex(value.search), "i");
+    filter.$or = ["customer.name", "customer.email", "design.notes"].map((field) => ({ [field]: match }));
+    if (mongoose.isObjectIdOrHexString(value.search)) filter.$or.push({ _id: value.search });
+  }
+  const [briefs, total] = await Promise.all([
+    StudioBrief.find(filter).sort({ createdAt: -1 }).skip((value.page - 1) * value.limit).limit(value.limit).lean(),
+    StudioBrief.countDocuments(filter),
+  ]);
+  res.set("Cache-Control", "private, no-store");
+  return res.json({ briefs, pagination: { page: value.page, pages: Math.ceil(total / value.limit), total } });
 };
 
 const listOrders = async (req, res, next) => {

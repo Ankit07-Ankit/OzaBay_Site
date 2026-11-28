@@ -150,4 +150,20 @@ test("Google sign-in creates a user on first sign-in and authenticates them", as
   assert.equal(response.body.user.email, "new.user@example.com");
   assert.ok(response.body.accessToken);
   assert.ok(response.cookieValue);
+
+  await t.test("Google linking clears credentials from an unfinished registration", async () => {
+    const pending = new userModel({
+      email: user.email, name: user.name, verified: false, password: "unverified-registration-hash",
+    });
+    upsert.mock.mockImplementation(async (filter, update, options) => {
+      if (options.upsert) return pending;
+      assert.equal(filter.verified, false);
+      assert.deepEqual(update.$unset, { password: 1 });
+      assert.equal(update.$set.verified, true);
+      return user;
+    });
+    await googleLogin({ body: { credential }, headers: {}, ip: "127.0.0.1" }, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(upsert.mock.callCount(), 3);
+  });
 });

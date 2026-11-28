@@ -6,6 +6,7 @@ import {
   ADMIN_PATH,
   ADMIN_TOKEN_KEY,
 } from "../../utils/routes.js";
+import StudioBriefs from "./StudioBriefs.jsx";
 import "./AdminPortal.css";
 
 const ADMIN_API = "/api/admin";
@@ -172,6 +173,7 @@ function AdminDashboard() {
   const [summary, setSummary] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [products, setProducts] = useState([]);
+  const [briefs, setBriefs] = useState([]);
   const [orders, setOrders] = useState([]);
   const [supportTickets, setSupportTickets] = useState([]);
   const [supportUnreadCount, setSupportUnreadCount] = useState(0);
@@ -190,7 +192,7 @@ function AdminDashboard() {
   const [page, setPage] = useState(1);
   const [reloadId, setReloadId] = useState(0);
 
-  const request = useCallback(async (path, options = {}) => {
+  const request = useCallback(async (path, options = {}, binary = false) => {
     const adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
     const response = await fetch(apiUrl(`${ADMIN_API}${path}`), {
       ...options,
@@ -205,6 +207,7 @@ function AdminDashboard() {
       sessionStorage.removeItem(ADMIN_TOKEN_KEY);
       navigate(ADMIN_PATH, { replace: true });
     }
+    if (binary && response.ok) return response.blob();
     return readResponse(response);
   }, [navigate]);
 
@@ -258,6 +261,7 @@ function AdminDashboard() {
         if (!active) return;
         if (tab === "accounts") setAccounts(result.accounts);
         else if (tab === "products") setProducts(result.products);
+        else if (tab === "studio-briefs") setBriefs(result.briefs);
         else if (tab === "orders") setOrders(result.orders);
         else if (tab === "support") {
           setSupportTickets(result.tickets || []);
@@ -494,6 +498,8 @@ function AdminDashboard() {
         >
           <span aria-hidden="true">★</span> Product reviews
         </button>
+        <button className={`admin-nav-item ${tab === "studio-briefs" ? "is-current" : ""}`}
+          onClick={() => { setTab("studio-briefs"); setPage(1); setSearch(""); setSearchInput(""); }}>Custom Studio briefs</button>
         <div className="admin-sidebar-bottom">
           <span>Super admin</span>
           <button onClick={signOut}>Sign out</button>
@@ -513,7 +519,7 @@ function AdminDashboard() {
                     ? "Support & feedback"
                     : tab === "reviews"
                       ? "Product reviews"
-                      : "Orders & payments"}
+                      : tab === "studio-briefs" ? "Custom Studio briefs" : "Orders & payments"}
             </h1>
           </div>
           <a className="admin-store-link" href="/">View store ↗</a>
@@ -543,12 +549,13 @@ function AdminDashboard() {
                         ? "Customer support"
                         : tab === "reviews"
                           ? "Product reviews"
-                          : "Customer orders"}
+                          : tab === "studio-briefs" ? "Customer design briefs" : "Customer orders"}
                 </h2>
                 <p>{tab === "accounts"
                   ? "Review customer and vendor access, or remove accounts that violate store rules."
                   : tab === "products"
                     ? "Review maker listings and remove products that violate marketplace rules or pricing standards."
+                    : tab === "studio-briefs" ? "Review the design and contact the customer to confirm a quote."
                     : "Review each order alongside customer contact, purchased products, payment method and transaction status."}</p>
               </div>
               <div className="admin-toolbar">
@@ -560,14 +567,14 @@ function AdminDashboard() {
                         ? "Search accounts"
                         : tab === "products"
                           ? "Search products"
-                          : "Search orders"
+                          : tab === "studio-briefs" ? "Search design briefs" : "Search orders"
                     }
                     placeholder={
                       tab === "accounts"
                         ? "Search name or email"
                         : tab === "products"
                           ? "Search product or category"
-                          : "Search order, customer or payment"
+                          : tab === "studio-briefs" ? "Search customer, notes or request ID" : "Search order, customer or payment"
                     }
                     value={searchInput}
                     onChange={(event) => setSearchInput(event.target.value)}
@@ -735,6 +742,8 @@ function AdminDashboard() {
                 ))}
                 {!reviews.length && <div className="admin-empty">No product reviews or feedback.</div>}
               </div>
+            ) : tab === "studio-briefs" ? (
+              <StudioBriefs briefs={briefs} request={request} />
             ) : tab === "support" ? (
               <div className="admin-support-list">
                 {supportTickets.map((ticket) => (

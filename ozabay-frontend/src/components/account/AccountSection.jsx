@@ -1219,11 +1219,11 @@ export default function AccountSection({
                     <div className="account-section__item-copy">
                       <span>{product.category}</span>
                       <strong>{product.name}</strong>
-                      <small>{money(product.priceValue)}</small>
+                      <small>{product.regional ? "Regional craft edit" : money(product.priceValue)}</small>
                     </div>
                     <div className="account-section__item-actions">
                       <button type="button" onClick={() => onAddToBag(product)}>
-                        Add to bag
+                        {product.regional ? "Browse maker listings" : "Add to bag"}
                       </button>
                       <button
                         type="button"

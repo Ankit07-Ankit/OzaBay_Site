@@ -330,8 +330,13 @@ const googleLogin = async (req, res) => {
       return res.status(403).json({ message: "This account has been blocked" });
     }
     if (!user.verified) {
-      user.verified = true;
-      await user.save();
+      // A password from an unfinished registration has no verified owner.
+      user = await userModel.findOneAndUpdate(
+        { _id: user._id, verified: false, isBlocked: { $ne: true } },
+        { $set: { verified: true }, $unset: { password: 1 } },
+        { new: true },
+      ) || await userModel.findOne({ email, verified: true, isBlocked: { $ne: true } });
+      if (!user) return res.status(403).json({ message: "Account is unavailable" });
     }
 
     const session = await createAuthenticatedSession(user, req, res);

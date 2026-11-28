@@ -1,9 +1,11 @@
 import app from "./src/app.js";
+import Order from "./src/models/order.model.js";
 import connectDB from "./src/config/database.js";
 import { pathToFileURL } from "node:url";
 
 // Do not accept requests until MongoDB (including GridFS) is ready.
 await connectDB();
+await Order.init(); // Checkout retries rely on the unique attempt index.
 
 export default app;
 

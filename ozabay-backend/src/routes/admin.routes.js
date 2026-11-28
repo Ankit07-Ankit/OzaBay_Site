@@ -9,12 +9,14 @@ import {
   getSupportUnreadCount,
   listAccounts,
   listOrders,
+  listStudioBriefs,
   listProducts,
   updateAccountStatus,
   listSupportMessages,
   replyToSupportMessage,
   deleteSupportMessage,
 } from "../controllers/admin.controller.js";
+import { getStudioReference } from "../controllers/studio-brief.controller.js";
 import requireAdmin from "../middleware/admin.middleware.js";
 import {
   listAdminProductReviews,
@@ -30,6 +32,8 @@ adminRouter.post("/logout", adminLogout);
 adminRouter.get("/session", getAdminSession);
 adminRouter.get("/summary", getSummary);
 adminRouter.get("/accounts", listAccounts);
+adminRouter.get("/studio-briefs", listStudioBriefs);
+adminRouter.get("/studio-briefs/:id/reference", getStudioReference);
 adminRouter.get("/orders", listOrders);
 adminRouter.patch("/accounts/:accountId/status", updateAccountStatus);
 adminRouter.delete("/accounts/:accountId", deleteAccount);

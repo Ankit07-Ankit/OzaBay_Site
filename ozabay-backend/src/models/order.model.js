@@ -122,6 +122,9 @@ const orderSchema = new mongoose.Schema(
       enum: ["Awaiting payment", "Received", "Crafting", "Shipped", "Out for delivery", "Delivered", "Cancelled", "Payment failed"],
       required: true,
     },
+    checkoutAttemptId: String,
+    checkoutFingerprint: String,
+    gatewayClaimUntil: Date,
     razorpayOrderId: { type: String, default: "" },
     razorpayPaymentId: { type: String, default: "" },
     razorpayFailureEmailPaymentIds: { type: [String], default: [] },
@@ -135,6 +138,10 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+orderSchema.index({ customerId: 1, checkoutAttemptId: 1 }, {
+  unique: true,
+  partialFilterExpression: { checkoutAttemptId: { $type: "string" } },
+});
 orderSchema.index({ "items.vendorId": 1, createdAt: -1 });
 orderSchema.index({ customerId: 1, createdAt: -1 });
 
